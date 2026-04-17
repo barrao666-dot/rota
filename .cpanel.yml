@@ -19,6 +19,12 @@ deployment:
     - /bin/cp  package-lock.json $DEPLOYPATH/
     - /bin/cp  vite.config.js    $DEPLOYPATH/ 2>/dev/null || true
 
+    # Remove o index.html de desenvolvimento do Vite (aponta pra /src/main.jsx,
+    # só funciona com `npm run dev`). Em produção quem manda é o Express,
+    # mas se por algum motivo o Passenger cair, o Apache não pode servir esse
+    # arquivo — em vez disso serve a página estática do frontend legado.
+    - /bin/rm -f $DEPLOYPATH/index.html
+
     # Instala dependências respeitando o package-lock. O --omit=dev mantém
     # o bundle da app leve (dependências de build só existem no seu PC).
     - cd $DEPLOYPATH && /usr/local/bin/npm ci --omit=dev || /usr/local/bin/npm install --omit=dev
