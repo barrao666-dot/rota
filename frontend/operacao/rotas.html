@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obralight - Roteirização e Despacho</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#333333">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root{--charcoal:#333;--orange:#F9801A;--danger:#dc2626;--bg:#f8fafc;--primary:var(--charcoal);--accent:var(--orange);--accent-soft:#fff7ed;--warn:#f59e0b}
+        .rota-warn-banner{background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;border-left:4px solid var(--warn);padding:8px 10px;border-radius:6px;font-size:11px;font-weight:600;margin-bottom:8px;display:none;line-height:1.35}
+        .rota-warn-banner.show{display:block}
+        body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;display:flex;height:100vh;background:var(--bg);color:var(--charcoal);overflow:hidden}
+        .sidebar{width:480px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;z-index:1000;box-shadow:2px 0 10px rgba(0,0,0,.1)}
+        .header{padding:15px 20px;background:#e2e8f0;color:var(--primary);border-bottom:4px solid var(--accent);display:flex;justify-content:space-between;align-items:center}
+        .logo-obralight{height:40px;width:auto;max-width:200px;object-fit:contain}
+        .cloud-badge{font-size:10px;background:rgba(0,0,0,.05);color:var(--primary);padding:4px 8px;border-radius:4px;font-weight:bold;border:1px solid rgba(0,0,0,.15)}
+        .content{padding:20px;overflow-y:auto;flex-grow:1;display:flex;flex-direction:column}
+        #map{flex-grow:1;z-index:1}
+        .form-box{background:#f1f5f9;padding:15px;border-radius:8px;border:1px solid #e2e8f0;position:relative;margin-bottom:15px}
+        label{display:block;font-size:11px;font-weight:bold;color:#475569;margin-bottom:5px;text-transform:uppercase}
+        input,select{width:100%;padding:10px;margin-bottom:15px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;font-weight:500;color:var(--charcoal)}
+        .btn{width:100%;padding:12px;border:none;border-radius:6px;cursor:pointer;font-weight:bold;color:#fff;transition:.2s;margin-bottom:8px;font-size:13px;text-transform:uppercase}
+        .btn-add{background:var(--accent)} .btn-route{background:var(--primary)} .btn-report{background:#64748b} .btn-clear{background:var(--danger);font-size:11px;padding:10px;margin-top:10px}
+        .btn:hover{opacity:.9} .btn:disabled{opacity:.5;cursor:not-allowed}
+        .alert{padding:12px;border-radius:6px;margin-bottom:15px;display:none;font-size:13px;font-weight:500;line-height:1.4}
+        .alert-danger{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+        .alert-info{background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe}
+        .card{background:#fff;border:1px solid #e2e8f0;padding:12px;margin-bottom:10px;border-radius:6px;border-left:5px solid #64748b;position:relative;transition:.3s}
+        .card.concluida{background:#f0fdf4;opacity:.8;border-color:#16a34a}
+        .badge-ordem{position:absolute;top:10px;right:10px;background:var(--accent);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px}
+        .card-actions{margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px;display:flex;gap:10px;flex-wrap:wrap}
+        .btn-small{background:none;border:none;font-size:12px;cursor:pointer;color:#64748b;font-weight:600;padding:0}
+        .btn-small:hover{opacity:.7}
+        .specs-table{width:100%;font-size:11px;color:#475569;margin-top:8px;border-top:1px solid #f1f5f9;padding-top:8px;border-collapse:collapse}
+        .custom-pin div{background:var(--accent);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.4);font-size:12px}
+        .coleta-pin div{border-radius:6px!important;background:#0284c7!important;border:2px solid #fff}
+        .filter-box{background:#e2e8f0;padding:10px;border-radius:6px;display:flex;gap:10px;align-items:center;margin-bottom:10px}
+        .filter-box label{margin:0;color:var(--primary);font-weight:bold;font-size:12px}
+        .filter-box input{margin:0;padding:8px;flex:1}
+        .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:3000;justify-content:center;align-items:center}
+        .modal-content{background:#fff;width:85%;max-width:900px;max-height:90vh;border-radius:8px;padding:20px;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,.2);position:relative}
+        .modal-header{border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
+        .turno-section{margin-bottom:25px;padding:15px;border-radius:6px;border:1px solid #e2e8f0;background:#f8fafc}
+        .turno-title{font-size:16px;font-weight:bold;margin-bottom:10px;border-bottom:1px solid #cbd5e1;padding-bottom:5px;display:flex;justify-content:space-between;align-items:center}
+        .btn-mic{border:none;background:#e2e8f0;border-radius:4px;cursor:pointer;padding:0 10px;transition:.2s;font-size:14px}
+        .btn-mic.ouvindo{background:#ef4444;color:#fff;animation:pulse 1s infinite}
+        @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+        #reader{width:100%;display:none;margin-bottom:15px;border-radius:8px;overflow:hidden;border:2px solid #0ea5e9}
+        .relatorio-table{width:100%;border-collapse:collapse;font-size:12px}
+        .relatorio-table th,.relatorio-table td{text-align:left;padding:8px;border-bottom:1px solid #e2e8f0}
+        .relatorio-table th{color:#64748b;font-size:11px;text-transform:uppercase}
+        .btn-gmaps{background:#16a34a;color:#fff;padding:8px 12px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:bold;display:inline-block;border:none;cursor:pointer;transition:.2s}
+        .btn-gmaps:hover{background:#15803d}
+        .sugestoes-box{position:absolute;top:40px;left:0;width:100%;background:#fff;border:1px solid #cbd5e1;border-top:none;max-height:200px;overflow-y:auto;z-index:9999;border-radius:0 0 6px 6px;box-shadow:0 4px 10px rgba(0,0,0,.15);display:none}
+        .sugestao-item{padding:10px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #f1f5f9;color:#334155;line-height:1.4}
+        .sugestao-item:hover{background:#f0f9ff;color:#0284c7}
+        .sugestao-item:last-child{border-bottom:none}
+        #status-nuvem.rotas-sync-quiet{font-size:9px;opacity:.88;transition:opacity .25s}
+        .regras-corte-box{background:#f1f5f9;border:1px solid #cbd5e1;padding:10px;border-radius:6px;margin-bottom:10px;display:flex;gap:10px;align-items:center}
+        @media print{ body *{visibility:hidden} #modal-relatorio,#modal-relatorio *{visibility:visible} #modal-relatorio{position:absolute;left:0;top:0;width:100%;background:none} .modal-content{width:100%;box-shadow:none;border:none} .btn-close-modal,.btn-print-modal,.btn-gmaps,.nao-imprimir{display:none!important} }
+    </style>
+</head>
+<body>
+<div class="sidebar">
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <img id="img-logo-empresa" src="" alt="Obralight" class="logo-obralight" onerror="this.style.display='none'" style="display:none;">
+            <div>
+                <p style="margin:0; font-size: 0.8rem; color: #475569; font-weight: bold;" id="txt-nome-empresa">Logística Operacional</p>
+                <p style="margin:0; font-size: 0.65rem; color: #64748b;" id="txt-endereco-base-sidebar">Carregando base...</p>
+            </div>
+        </div>
+        <div id="status-nuvem" class="cloud-badge">⏳ Iniciando</div>
+    </div>
+    <div class="content">
+        <div id="msg-erro" class="alert alert-danger"></div>
+        <div id="msg-sucesso" class="alert alert-info"></div>
+        <div class="form-box">
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <input type="file" id="input-xml" accept=".xml" style="display:none;" onchange="processarXML(event)">
+                <button class="btn" style="background:#8b5cf6; flex: 1; margin:0;" onclick="document.getElementById('input-xml').click()">📄 NFe (XML)</button>
+                <button class="btn" style="background:#0ea5e9; flex: 1; margin:0;" onclick="abrirCameraBarcode()">📷 Cód. Barras</button>
+            </div>
+            <div id="reader"></div>
+            <label>Código de Barras / Chave NFe (Opcional)</label>
+            <input type="text" id="codigo-barras" placeholder="Leitor físico ou câmara" autocomplete="off" style="border-color: #0ea5e9; background: #f0f9ff;">
+            <label>Nome do Cliente / Pedido</label>
+            <input type="text" id="nome-cliente" placeholder="Ex: João da Silva" autocomplete="off">
+            <label>Endereço de Entrega</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="endereco-cep" placeholder="CEP" autocomplete="off" style="flex: 1; margin-bottom: 0;" onblur="buscarCepEntrega()">
+                <div style="display: flex; flex: 3; gap: 4px; position: relative;">
+                    <button id="btn-mic-rua" class="btn-mic" type="button" onclick="iniciarVoz('endereco-rua')" title="Voz">🎤</button>
+                    <div style="width: 100%; position: relative;">
+                        <input type="text" id="endereco-rua" placeholder="Rua / Avenida" autocomplete="off" style="width: 100%; margin-bottom: 0;" oninput="buscarSugestoesRua()">
+                        <div id="sugestoes-endereco" class="sugestoes-box"></div>
+                    </div>
+                </div>
+                <input type="text" id="endereco-num" placeholder="Nº" autocomplete="off" style="flex: 1; margin-bottom: 0;">
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <input type="text" id="endereco-bairro" placeholder="Bairro" autocomplete="off" style="flex: 2; margin-bottom: 0;">
+                <input type="text" id="endereco-cidade" value="Belo Horizonte" autocomplete="off" style="flex: 2; margin-bottom: 0;">
+                <select id="endereco-estado" style="flex: 1; margin-bottom: 0;">
+                    <option value="MG" selected>MG</option><option value="SP">SP</option><option value="RJ">RJ</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <div style="flex: 1.2;"><label>Data Agendada</label><input type="date" id="data-entrega"></div>
+                <div style="flex: 1;">
+                    <label>Turno Inicial</label>
+                    <select id="periodo"><option value="manha" id="opt-manha">Manhã</option><option value="tarde" id="opt-tarde">Tarde</option></select>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;"><label>Categoria (Regras e Pesos)</label><select id="tamanho" style="margin-bottom: 5px;"><option value="Ate20">Carregando...</option></select></div>
+            </div>
+            <button class="btn btn-add" id="btn-salvar" onclick="salvarPacote()" style="margin-top: 10px;">➕ Adicionar à Fila</button>
+        </div>
+        <div class="form-box" style="background: #e0f2fe; border-color: #bae6fd;">
+            <label style="color: #0369a1;">🏢 Inserir Parada de Coleta (Fornecedor)</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <select id="select-fornecedor" style="margin-bottom: 0; flex: 1;"><option value="">Selecione fornecedor...</option></select>
+                <button class="btn" style="background:#0284c7; color:white; margin:0; width:auto; padding:0 12px;" onclick="addFornecedorFila()">➕ Inserir</button>
+            </div>
+            <label style="color: #0369a1; font-size: 10px; margin-bottom: 5px;">Vínculo com entrega (opcional)</label>
+            <select id="select-entrega-vincular" style="margin-bottom: 10px; font-size: 11px; padding: 8px;">
+                <option value="">Coleta independente (sem vínculo)</option>
+            </select>
+            <p style="font-size:10px; color:#0369a1; margin: 0 0 10px; line-height:1.4;">
+                Quando vinculada, a coleta é sempre posicionada <b>imediatamente antes</b> da entrega na rota (pickup → delivery).
+            </p>
+            <label style="color: #0369a1; font-size: 10px; margin-bottom: 5px;">Atribuição (Manifesto)</label>
+            <div style="display: flex; gap: 8px;">
+                <select id="select-motorista" style="margin-bottom: 0; flex: 1; padding: 8px; font-size: 11px;"><option value="">Motorista (Opcional)</option></select>
+                <select id="select-veiculo" style="margin-bottom: 0; flex: 1; padding: 8px; font-size: 11px;"><option value="">Veículo (Opcional)</option></select>
+            </div>
+        </div>
+        <h4 style="margin: 20px 0 10px; color: var(--primary); font-size: 14px;">Controle de Rotas</h4>
+        <div class="filter-box">
+            <label>Data Base:</label>
+            <input type="date" id="filtro-data-operacao" onchange="onChangeFiltroDataRotas();">
+        </div>
+        <details class="rotas-opcoes-av" style="font-size:11px;margin-bottom:12px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;">
+            <summary style="cursor:pointer;font-weight:700;color:var(--primary);text-transform:none;">Opções da tela e da ordem (voltar atrás se precisar)</summary>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;font-weight:600;">
+                <input type="checkbox" id="chk-rotas-subtle-poll" checked style="width:auto;margin:0;"> Atualização em tempo real <strong>suave</strong> (menos “piscar” o mapa)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;text-transform:none;font-weight:600;">
+                <input type="checkbox" id="chk-rotas-intel-ordem" checked style="width:auto;margin:0;"> Inteligência ao subir/descer (proximidade; aviso se a rota em linha reta ficar bem mais longa)
+            </label>
+            <p style="margin:10px 0 0;line-height:1.45;text-transform:none;font-weight:500;color:#64748b;">Se algo estranhar: desmarque as opções acima ou no console use <code style="font-size:10px;">localStorage.setItem('rotas_poll_subtle','0')</code> e/ou <code style="font-size:10px;">localStorage.setItem('rotas_intel_ordem','0')</code>. Para reativar: <code style="font-size:10px;">removeItem</code> dessas chaves ou defina <code>'1'</code>.</p>
+        </details>
+        <div class="regras-corte-box">
+            <div style="flex: 1; text-align: center;">
+                <label style="color: #475569; margin: 0;">⏰ Limite Manhã</label>
+                <strong id="lbl-corte-manha" style="font-size: 16px; color: #0284c7;">--:--</strong>
+            </div>
+            <div style="flex: 1; text-align: center; border-left: 1px solid #cbd5e1;">
+                <label style="color: #475569; margin: 0;">⏰ Limite Tarde</label>
+                <strong id="lbl-corte-tarde" style="font-size: 16px; color: #0284c7;">--:--</strong>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <button id="btn-criar-rota" class="btn btn-route" onclick="otimizarRotaEValidarTempo()" style="margin: 0; flex: 2; font-size: 11px;">📍 1. Criar Rota</button>
+            <button id="btn-recalc-rota" class="btn" style="background: #0ea5e9; color: white; margin: 0; flex: 2; font-size: 11px;" onclick="recalcularDistanciasManuais()">🛣️ Recalcular</button>
+            <button id="btn-limpar-rota" class="btn" style="background: #eab308; color: white; margin: 0; flex: 1; font-size: 11px;" onclick="limparRotasDoDia()">🧹 Limpar</button>
+        </div>
+        <p style="font-size:10px; color:#64748b; margin:0 0 8px; text-align:center;">
+            ⏱️ Inserção de novos endereços na rota até <b>17:50</b> · Virada automática para o dia seguinte às <b>18:30</b>
+        </p>
+        <div id="rota-warn-banner" class="rota-warn-banner" role="alert" aria-live="polite"></div>
+        <button class="btn btn-report" onclick="abrirRelatorio()">📋 2. Relatório e Maps</button>
+        <div id="cards-container" style="margin-top: 15px;"><div style="font-size:12px; color:#64748b; text-align:center;">⏳ Inicializando...</div></div>
+        <div style="margin-top: 30px; padding-top: 15px; border-top: 1px dashed #cbd5e1;">
+            <button class="btn" style="background: #ef4444; margin: 0;" onclick="sairDoSistema()"><span style="font-size:16px;">🚪</span> Sair e Deslogar</button>
+        </div>
+    </div>
+</div>
+<div id="map"></div>
+<div id="modal-relatorio" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <h2 style="margin: 0; color: var(--obralight-charcoal); font-weight: 800;">Manifesto de Expedição</h2>
+                <p style="margin: 0; font-size: 13px; color: #64748b;" id="txt-relatorio-base">Relatório Analítico</p>
+            </div>
+            <div>
+                <button class="btn btn-print-modal" style="background: var(--obralight-charcoal); color: white; padding: 10px 15px; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-right: 10px;" onclick="window.print()">🖨️ Imprimir</button>
+                <button class="btn btn-close-modal" style="background: #64748b; color: white; padding: 10px 15px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;" onclick="fecharModal('modal-relatorio')">✖ Fechar</button>
+            </div>
+        </div>
+        <div style="background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; gap: 15px; align-items: center;" class="nao-imprimir">
+            <label style="font-size: 12px; font-weight: bold; color: var(--obralight-charcoal);">Filtrar Turno:</label>
+            <select id="filtro-turno-relatorio" onchange="renderizarConteudoRelatorio()" style="margin: 0; width: 250px; padding: 8px;">
+                <option value="todos">Todos</option><option value="manha">Manhã</option><option value="tarde">Tarde</option>
+            </select>
+        </div>
+        <div id="conteudo-relatorio"></div>
+    </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<script src="/js/api-client.js"></script>
+<script src="/js/endereco-geocode.js"></script>
+<script src="/js/rotas.js?v=20260416-07"></script>
+</body>
+</html>
+<!--
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obralight - Roteirização e Despacho</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#333333">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root{--charcoal:#333;--orange:#F9801A;--danger:#dc2626;--bg:#f8fafc;--primary:var(--charcoal);--accent:var(--orange)}
+        body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;display:flex;height:100vh;background:var(--bg);color:var(--charcoal);overflow:hidden}
+        .sidebar{width:480px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;z-index:1000;box-shadow:2px 0 10px rgba(0,0,0,.1)}
+        .header{padding:15px 20px;background:#e2e8f0;color:var(--primary);border-bottom:4px solid var(--accent);display:flex;justify-content:space-between;align-items:center}
+        .logo-obralight{height:40px;width:auto;max-width:200px;object-fit:contain}
+        .cloud-badge{font-size:10px;background:rgba(0,0,0,.05);color:var(--primary);padding:4px 8px;border-radius:4px;font-weight:bold;border:1px solid rgba(0,0,0,.15)}
+        .content{padding:20px;overflow-y:auto;flex-grow:1;display:flex;flex-direction:column}
+        #map{flex-grow:1;z-index:1}
+        .form-box{background:#f1f5f9;padding:15px;border-radius:8px;border:1px solid #e2e8f0;position:relative;margin-bottom:15px}
+        label{display:block;font-size:11px;font-weight:bold;color:#475569;margin-bottom:5px;text-transform:uppercase}
+        input,select{width:100%;padding:10px;margin-bottom:15px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;font-weight:500;color:var(--charcoal)}
+        .btn{width:100%;padding:12px;border:none;border-radius:6px;cursor:pointer;font-weight:bold;color:#fff;transition:.2s;margin-bottom:8px;font-size:13px;text-transform:uppercase}
+        .btn-add{background:var(--accent)} .btn-route{background:var(--primary)} .btn-report{background:#64748b} .btn-clear{background:var(--danger);font-size:11px;padding:10px;margin-top:10px}
+        .btn:hover{opacity:.9} .btn:disabled{opacity:.5;cursor:not-allowed}
+        .alert{padding:12px;border-radius:6px;margin-bottom:15px;display:none;font-size:13px;font-weight:500;line-height:1.4}
+        .alert-danger{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+        .alert-info{background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe}
+        .card{background:#fff;border:1px solid #e2e8f0;padding:12px;margin-bottom:10px;border-radius:6px;border-left:5px solid #64748b;position:relative;transition:.3s}
+        .card.concluida{background:#f0fdf4;opacity:.8;border-color:#16a34a}
+        .badge-ordem{position:absolute;top:10px;right:10px;background:var(--accent);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px}
+        .card-actions{margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px;display:flex;gap:10px;flex-wrap:wrap}
+        .btn-small{background:none;border:none;font-size:12px;cursor:pointer;color:#64748b;font-weight:600;padding:0}
+        .btn-small:hover{opacity:.7}
+        .specs-table{width:100%;font-size:11px;color:#475569;margin-top:8px;border-top:1px solid #f1f5f9;padding-top:8px;border-collapse:collapse}
+        .custom-pin div{background:var(--accent);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.4);font-size:12px}
+        .coleta-pin div{border-radius:6px!important;background:#0284c7!important;border:2px solid #fff}
+        .filter-box{background:#e2e8f0;padding:10px;border-radius:6px;display:flex;gap:10px;align-items:center;margin-bottom:10px}
+        .filter-box label{margin:0;color:var(--primary);font-weight:bold;font-size:12px}
+        .filter-box input{margin:0;padding:8px;flex:1}
+        .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:3000;justify-content:center;align-items:center}
+        .modal-content{background:#fff;width:85%;max-width:900px;max-height:90vh;border-radius:8px;padding:20px;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,.2);position:relative}
+        .modal-header{border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
+        .turno-section{margin-bottom:25px;padding:15px;border-radius:6px;border:1px solid #e2e8f0;background:#f8fafc}
+        .turno-title{font-size:16px;font-weight:bold;margin-bottom:10px;border-bottom:1px solid #cbd5e1;padding-bottom:5px;display:flex;justify-content:space-between;align-items:center}
+        .btn-mic{border:none;background:#e2e8f0;border-radius:4px;cursor:pointer;padding:0 10px;transition:.2s;font-size:14px}
+        .btn-mic.ouvindo{background:#ef4444;color:#fff;animation:pulse 1s infinite}
+        @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+        #reader{width:100%;display:none;margin-bottom:15px;border-radius:8px;overflow:hidden;border:2px solid #0ea5e9}
+        .relatorio-table{width:100%;border-collapse:collapse;font-size:12px}
+        .relatorio-table th,.relatorio-table td{text-align:left;padding:8px;border-bottom:1px solid #e2e8f0}
+        .relatorio-table th{color:#64748b;font-size:11px;text-transform:uppercase}
+        .btn-gmaps{background:#16a34a;color:#fff;padding:8px 12px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:bold;display:inline-block;border:none;cursor:pointer;transition:.2s}
+        .btn-gmaps:hover{background:#15803d}
+        .sugestoes-box{position:absolute;top:40px;left:0;width:100%;background:#fff;border:1px solid #cbd5e1;border-top:none;max-height:200px;overflow-y:auto;z-index:9999;border-radius:0 0 6px 6px;box-shadow:0 4px 10px rgba(0,0,0,.15);display:none}
+        .sugestao-item{padding:10px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #f1f5f9;color:#334155;line-height:1.4}
+        .sugestao-item:hover{background:#f0f9ff;color:#0284c7}
+        .sugestao-item:last-child{border-bottom:none}
+        #status-nuvem.rotas-sync-quiet{font-size:9px;opacity:.88;transition:opacity .25s}
+        .regras-corte-box{background:#f1f5f9;border:1px solid #cbd5e1;padding:10px;border-radius:6px;margin-bottom:10px;display:flex;gap:10px;align-items:center}
+        @media print{ body *{visibility:hidden} #modal-relatorio,#modal-relatorio *{visibility:visible} #modal-relatorio{position:absolute;left:0;top:0;width:100%;background:none} .modal-content{width:100%;box-shadow:none;border:none} .btn-close-modal,.btn-print-modal,.btn-gmaps,.nao-imprimir{display:none!important} }
+    </style>
+</head>
+<body>
+<div class="sidebar">
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <img id="img-logo-empresa" src="" alt="Obralight" class="logo-obralight" onerror="this.style.display='none'" style="display:none;">
+            <div>
+                <p style="margin:0; font-size: 0.8rem; color: #475569; font-weight: bold;" id="txt-nome-empresa">Logística Operacional</p>
+                <p style="margin:0; font-size: 0.65rem; color: #64748b;" id="txt-endereco-base-sidebar">Carregando base...</p>
+            </div>
+        </div>
+        <div id="status-nuvem" class="cloud-badge">⏳ Iniciando</div>
+    </div>
+    <div class="content">
+        <div id="msg-erro" class="alert alert-danger"></div>
+        <div id="msg-sucesso" class="alert alert-info"></div>
+        <div class="form-box">
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <input type="file" id="input-xml" accept=".xml" style="display:none;" onchange="processarXML(event)">
+                <button class="btn" style="background:#8b5cf6; flex: 1; margin:0;" onclick="document.getElementById('input-xml').click()">📄 NFe (XML)</button>
+                <button class="btn" style="background:#0ea5e9; flex: 1; margin:0;" onclick="abrirCameraBarcode()">📷 Cód. Barras</button>
+            </div>
+            <div id="reader"></div>
+            <label>Código de Barras / Chave NFe (Opcional)</label>
+            <input type="text" id="codigo-barras" placeholder="Leitor físico ou câmara" autocomplete="off" style="border-color: #0ea5e9; background: #f0f9ff;">
+            <label>Nome do Cliente / Pedido</label>
+            <input type="text" id="nome-cliente" placeholder="Ex: João da Silva" autocomplete="off">
+            <label>Endereço de Entrega</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="endereco-cep" placeholder="CEP" autocomplete="off" style="flex: 1; margin-bottom: 0;" onblur="buscarCepEntrega()">
+                <div style="display: flex; flex: 3; gap: 4px; position: relative;">
+                    <button id="btn-mic-rua" class="btn-mic" type="button" onclick="iniciarVoz('endereco-rua')" title="Voz">🎤</button>
+                    <div style="width: 100%; position: relative;">
+                        <input type="text" id="endereco-rua" placeholder="Rua / Avenida" autocomplete="off" style="width: 100%; margin-bottom: 0;" oninput="buscarSugestoesRua()">
+                        <div id="sugestoes-endereco" class="sugestoes-box"></div>
+                    </div>
+                </div>
+                <input type="text" id="endereco-num" placeholder="Nº" autocomplete="off" style="flex: 1; margin-bottom: 0;">
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <input type="text" id="endereco-bairro" placeholder="Bairro" autocomplete="off" style="flex: 2; margin-bottom: 0;">
+                <input type="text" id="endereco-cidade" value="Belo Horizonte" autocomplete="off" style="flex: 2; margin-bottom: 0;">
+                <select id="endereco-estado" style="flex: 1; margin-bottom: 0;">
+                    <option value="MG" selected>MG</option><option value="SP">SP</option><option value="RJ">RJ</option>
+                </select>
+            </div>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <div style="flex: 1.2;"><label>Data Agendada</label><input type="date" id="data-entrega"></div>
+                <div style="flex: 1;">
+                    <label>Turno Inicial</label>
+                    <select id="periodo"><option value="manha" id="opt-manha">Manhã</option><option value="tarde" id="opt-tarde">Tarde</option></select>
+                </div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;"><label>Categoria (Regras e Pesos)</label><select id="tamanho" style="margin-bottom: 5px;"><option value="Ate20">Carregando...</option></select></div>
+            </div>
+            <button class="btn btn-add" id="btn-salvar" onclick="salvarPacote()" style="margin-top: 10px;">➕ Adicionar à Fila</button>
+        </div>
+        <div class="form-box" style="background: #e0f2fe; border-color: #bae6fd;">
+            <label style="color: #0369a1;">🏢 Inserir Parada de Coleta (Fornecedor)</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <select id="select-fornecedor" style="margin-bottom: 0; flex: 1;"><option value="">Selecione fornecedor...</option></select>
+                <button class="btn" style="background:#0284c7; color:white; margin:0; width:auto; padding:0 12px;" onclick="addFornecedorFila()">➕ Inserir</button>
+            </div>
+            <label style="color: #0369a1; font-size: 10px; margin-bottom: 5px;">Vínculo com entrega (opcional)</label>
+            <select id="select-entrega-vincular" style="margin-bottom: 10px; font-size: 11px; padding: 8px;">
+                <option value="">Coleta independente (sem vínculo)</option>
+            </select>
+            <p style="font-size:10px; color:#0369a1; margin: 0 0 10px; line-height:1.4;">
+                Quando vinculada, a coleta é sempre posicionada <b>imediatamente antes</b> da entrega na rota (pickup → delivery).
+            </p>
+            <label style="color: #0369a1; font-size: 10px; margin-bottom: 5px;">Atribuição (Manifesto)</label>
+            <div style="display: flex; gap: 8px;">
+                <select id="select-motorista" style="margin-bottom: 0; flex: 1; padding: 8px; font-size: 11px;"><option value="">Motorista (Opcional)</option></select>
+                <select id="select-veiculo" style="margin-bottom: 0; flex: 1; padding: 8px; font-size: 11px;"><option value="">Veículo (Opcional)</option></select>
+            </div>
+        </div>
+        <h4 style="margin: 20px 0 10px; color: var(--primary); font-size: 14px;">Controle de Rotas</h4>
+        <div class="filter-box">
+            <label>Data Base:</label>
+            <input type="date" id="filtro-data-operacao" onchange="onChangeFiltroDataRotas();">
+        </div>
+        <details class="rotas-opcoes-av" style="font-size:11px;margin-bottom:12px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;">
+            <summary style="cursor:pointer;font-weight:700;color:var(--primary);text-transform:none;">Opções da tela e da ordem (voltar atrás se precisar)</summary>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;font-weight:600;">
+                <input type="checkbox" id="chk-rotas-subtle-poll" checked style="width:auto;margin:0;"> Atualização em tempo real <strong>suave</strong> (menos “piscar” o mapa)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;text-transform:none;font-weight:600;">
+                <input type="checkbox" id="chk-rotas-intel-ordem" checked style="width:auto;margin:0;"> Inteligência ao subir/descer (proximidade; aviso se a rota em linha reta ficar bem mais longa)
+            </label>
+            <p style="margin:10px 0 0;line-height:1.45;text-transform:none;font-weight:500;color:#64748b;">Se algo estranhar: desmarque as opções acima ou no console use <code style="font-size:10px;">localStorage.setItem('rotas_poll_subtle','0')</code> e/ou <code style="font-size:10px;">localStorage.setItem('rotas_intel_ordem','0')</code>. Para reativar: <code style="font-size:10px;">removeItem</code> dessas chaves ou defina <code>'1'</code>.</p>
+        </details>
+        <div class="regras-corte-box">
+            <div style="flex: 1; text-align: center;">
+                <label style="color: #475569; margin: 0;">⏰ Limite Manhã</label>
+                <strong id="lbl-corte-manha" style="font-size: 16px; color: #0284c7;">--:--</strong>
+            </div>
+            <div style="flex: 1; text-align: center; border-left: 1px solid #cbd5e1;">
+                <label style="color: #475569; margin: 0;">⏰ Limite Tarde</label>
+                <strong id="lbl-corte-tarde" style="font-size: 16px; color: #0284c7;">--:--</strong>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <button id="btn-criar-rota" class="btn btn-route" onclick="otimizarRotaEValidarTempo()" style="margin: 0; flex: 2; font-size: 11px;">📍 1. Criar Rota</button>
+            <button id="btn-recalc-rota" class="btn" style="background: #0ea5e9; color: white; margin: 0; flex: 2; font-size: 11px;" onclick="recalcularDistanciasManuais()">🛣️ Recalcular</button>
+            <button id="btn-limpar-rota" class="btn" style="background: #eab308; color: white; margin: 0; flex: 1; font-size: 11px;" onclick="limparRotasDoDia()">🧹 Limpar</button>
+        </div>
+        <p style="font-size:10px; color:#64748b; margin:0 0 8px; text-align:center;">
+            ⏱️ Inserção de novos endereços na rota até <b>17:50</b> · Virada automática para o dia seguinte às <b>18:30</b>
+        </p>
+        <div id="rota-warn-banner" class="rota-warn-banner" role="alert" aria-live="polite"></div>
+        <button class="btn btn-report" onclick="abrirRelatorio()">📋 2. Relatório e Maps</button>
+        <div id="cards-container" style="margin-top: 15px;"><div style="font-size:12px; color:#64748b; text-align:center;">⏳ Inicializando...</div></div>
+        <div style="margin-top: 30px; padding-top: 15px; border-top: 1px dashed #cbd5e1;">
+            <button class="btn" style="background: #ef4444; margin: 0;" onclick="sairDoSistema()"><span style="font-size:16px;">🚪</span> Sair e Deslogar</button>
+        </div>
+    </div>
+</div>
+<div id="map"></div>
+<div id="modal-relatorio" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <h2 style="margin: 0; color: var(--obralight-charcoal); font-weight: 800;">Manifesto de Expedição</h2>
+                <p style="margin: 0; font-size: 13px; color: #64748b;" id="txt-relatorio-base">Relatório Analítico</p>
+            </div>
+            <div>
+                <button class="btn btn-print-modal" style="background: var(--obralight-charcoal); color: white; padding: 10px 15px; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-right: 10px;" onclick="window.print()">🖨️ Imprimir</button>
+                <button class="btn btn-close-modal" style="background: #64748b; color: white; padding: 10px 15px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;" onclick="fecharModal('modal-relatorio')">✖ Fechar</button>
+            </div>
+        </div>
+        <div style="background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; gap: 15px; align-items: center;" class="nao-imprimir">
+            <label style="font-size: 12px; font-weight: bold; color: var(--obralight-charcoal);">Filtrar Turno:</label>
+            <select id="filtro-turno-relatorio" onchange="renderizarConteudoRelatorio()" style="margin: 0; width: 250px; padding: 8px;">
+                <option value="todos">Todos</option><option value="manha">Manhã</option><option value="tarde">Tarde</option>
+            </select>
+        </div>
+        <div id="conteudo-relatorio"></div>
+    </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<script src="/js/api-client.js"></script>
+<script src="/js/rotas.js?v=20260416-05"></script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obralight - Roteirização e Despacho</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#333333">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root{--charcoal:#333;--orange:#F9801A;--danger:#dc2626;--bg:#f8fafc;--primary:var(--charcoal);--accent:var(--orange)}
+        body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;display:flex;height:100vh;background:var(--bg);color:var(--charcoal);overflow:hidden}
+        .sidebar{width:480px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;z-index:1000;box-shadow:2px 0 10px rgba(0,0,0,.1)}
+        .header{padding:15px 20px;background:#e2e8f0;color:var(--primary);border-bottom:4px solid var(--accent);display:flex;justify-content:space-between;align-items:center}
+        .logo-obralight{height:40px;width:auto;max-width:200px;object-fit:contain}
+        .cloud-badge{font-size:10px;background:rgba(0,0,0,.05);color:var(--primary);padding:4px 8px;border-radius:4px;font-weight:bold;border:1px solid rgba(0,0,0,.15)}
+        .content{padding:20px;overflow-y:auto;flex-grow:1;display:flex;flex-direction:column}
+        #map{flex-grow:1;z-index:1}
+        .form-box{background:#f1f5f9;padding:15px;border-radius:8px;border:1px solid #e2e8f0;position:relative;margin-bottom:15px}
+        label{display:block;font-size:11px;font-weight:bold;color:#475569;margin-bottom:5px;text-transform:uppercase}
+        input,select{width:100%;padding:10px;margin-bottom:15px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;font-weight:500;color:var(--charcoal)}
+        .btn{width:100%;padding:12px;border:none;border-radius:6px;cursor:pointer;font-weight:bold;color:#fff;transition:.2s;margin-bottom:8px;font-size:13px;text-transform:uppercase}
+        .btn-add{background:var(--accent)} .btn-route{background:var(--primary)} .btn-report{background:#64748b} .btn-clear{background:var(--danger);font-size:11px;padding:10px;margin-top:10px}
+        .btn:hover{opacity:.9} .btn:disabled{opacity:.5;cursor:not-allowed}
+        .alert{padding:12px;border-radius:6px;margin-bottom:15px;display:none;font-size:13px;font-weight:500;line-height:1.4}
+        .alert-danger{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+        .alert-info{background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe}
+        .card{background:#fff;border:1px solid #e2e8f0;padding:12px;margin-bottom:10px;border-radius:6px;border-left:5px solid #64748b;position:relative;transition:.3s}
+        .card.concluida{background:#f0fdf4;opacity:.8;border-color:#16a34a}
+        .badge-ordem{position:absolute;top:10px;right:10px;background:var(--accent);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px}
+        .card-actions{margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px;display:flex;gap:10px;flex-wrap:wrap}
+        .btn-small{background:none;border:none;font-size:12px;cursor:pointer;color:#64748b;font-weight:600;padding:0}
+        .btn-small:hover{opacity:.7}
+        .specs-table{width:100%;font-size:11px;color:#475569;margin-top:8px;border-top:1px solid #f1f5f9;padding-top:8px;border-collapse:collapse}
+        .custom-pin div{background:var(--accent);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.4);font-size:12px}
+        .coleta-pin div{border-radius:6px!important;background:#0284c7!important;border:2px solid #fff}
+        .filter-box{background:#e2e8f0;padding:10px;border-radius:6px;display:flex;gap:10px;align-items:center;margin-bottom:10px}
+        .filter-box label{margin:0;color:var(--primary);font-weight:bold;font-size:12px}
+        .filter-box input{margin:0;padding:8px;flex:1}
+        .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:3000;justify-content:center;align-items:center}
+        .modal-content{background:#fff;width:85%;max-width:900px;max-height:90vh;border-radius:8px;padding:20px;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,.2);position:relative}
+        .modal-header{border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
+        .turno-section{margin-bottom:25px;padding:15px;border-radius:6px;border:1px solid #e2e8f0;background:#f8fafc}
+        .turno-title{font-size:16px;font-weight:bold;margin-bottom:10px;border-bottom:1px solid #cbd5e1;padding-bottom:5px;display:flex;justify-content:space-between;align-items:center}
+        .btn-mic{border:none;background:#e2e8f0;border-radius:4px;cursor:pointer;padding:0 10px;transition:.2s;font-size:14px}
+        .btn-mic.ouvindo{background:#ef4444;color:#fff;animation:pulse 1s infinite}
+        @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+        #reader{width:100%;display:none;margin-bottom:15px;border-radius:8px;overflow:hidden;border:2px solid #0ea5e9}
+        .relatorio-table{width:100%;border-collapse:collapse;font-size:12px}
+        .relatorio-table th,.relatorio-table td{text-align:left;padding:8px;border-bottom:1px solid #e2e8f0}
+        .relatorio-table th{color:#64748b;font-size:11px;text-transform:uppercase}
+        .btn-gmaps{background:#16a34a;color:#fff;padding:8px 12px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:bold;display:inline-block;border:none;cursor:pointer;transition:.2s}
+        .btn-gmaps:hover{background:#15803d}
+        .sugestoes-box{position:absolute;top:40px;left:0;width:100%;background:#fff;border:1px solid #cbd5e1;border-top:none;max-height:200px;overflow-y:auto;z-index:9999;border-radius:0 0 6px 6px;box-shadow:0 4px 10px rgba(0,0,0,.15);display:none}
+        .sugestao-item{padding:10px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #f1f5f9;color:#334155;line-height:1.4}
+        .sugestao-item:hover{background:#f0f9ff;color:#0284c7}
+        .sugestao-item:last-child{border-bottom:none}
+        #status-nuvem.rotas-sync-quiet{font-size:9px;opacity:.88;transition:opacity .25s}
+        .regras-corte-box{background:#f1f5f9;border:1px solid #cbd5e1;padding:10px;border-radius:6px;margin-bottom:10px;display:flex;gap:10px;align-items:center}
+        @media print{ body *{visibility:hidden} #modal-relatorio,#modal-relatorio *{visibility:visible} #modal-relatorio{position:absolute;left:0;top:0;width:100%;background:none} .modal-content{width:100%;box-shadow:none;border:none} .btn-close-modal,.btn-print-modal,.btn-gmaps,.nao-imprimir{display:none!important} }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <img id="img-logo-empresa" src="" alt="Obralight" class="logo-obralight" onerror="this.style.display='none'" style="display:none;">
+            <div>
+                <p style="margin:0; font-size: 0.8rem; color: #475569; font-weight: bold;" id="txt-nome-empresa">Logística Operacional</p>
+                <p style="margin:0; font-size: 0.65rem; color: #64748b;" id="txt-endereco-base-sidebar">Carregando base...</p>
+            </div>
+        </div>
+        <div id="status-nuvem" class="cloud-badge">⏳ Iniciando</div>
+    </div>
+
+    <div class="content">
+        <div id="msg-erro" class="alert alert-danger"></div>
+        <div id="msg-sucesso" class="alert alert-info"></div>
+
+        <div class="form-box">
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <input type="file" id="input-xml" accept=".xml" style="display:none;" onchange="processarXML(event)">
+                <button class="btn" style="background:#8b5cf6; flex: 1; margin:0;" onclick="document.getElementById('input-xml').click()">📄 NFe (XML)</button>
+                <button class="btn" style="background:#0ea5e9; flex: 1; margin:0;" onclick="abrirCameraBarcode()">📷 Cód. Barras</button>
+            </div>
+
+            <div id="reader"></div>
+
+            <label>Código de Barras / Chave NFe (Opcional)</label>
+            <input type="text" id="codigo-barras" placeholder="Leitor físico ou câmara" autocomplete="off" style="border-color: #0ea5e9; background: #f0f9ff;">
+
+            <label>Nome do Cliente / Pedido</label>
+            <input type="text" id="nome-cliente" placeholder="Ex: João da Silva" autocomplete="off">
+
+            <label>Endereço de Entrega</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="endereco-cep" placeholder="CEP" autocomplete="off" style="flex: 1; margin-bottom: 0;" onblur="buscarCepEntrega()">
+                <div style="display: flex; flex: 3; gap: 4px; position: relative;">
+                    <button id="btn-mic-rua" class="btn-mic" type="button" onclick="iniciarVoz('endereco-rua')" title="Voz">🎤</button>
+                    <div style="width: 100%; position: relative;">
+                        <input type="text" id="endereco-rua" placeholder="Rua / Avenida" autocomplete="off" style="width: 100%; margin-bottom: 0;" oninput="buscarSugestoesRua()">
+                        <div id="sugestoes-endereco" class="sugestoes-box"></div>
+                    </div>
+                </div>
+                <input type="text" id="endereco-num" placeholder="Nº" autocomplete="off" style="flex: 1; margin-bottom: 0;">
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <input type="text" id="endereco-bairro" placeholder="Bairro" autocomplete="off" style="flex: 2; margin-bottom: 0;">
+                <input type="text" id="endereco-cidade" value="Belo Horizonte" autocomplete="off" style="flex: 2; margin-bottom: 0;">
+                <select id="endereco-estado" style="flex: 1; margin-bottom: 0;">
+                    <option value="MG" selected>MG</option><option value="SP">SP</option><option value="RJ">RJ</option>
+                </select>
+            </div>
+
+
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <div style="flex: 1.2;"><label>Data Agendada</label><input type="date" id="data-entrega"></div>
+                <div style="flex: 1;">
+                    <label>Turno Inicial</label>
+                    <select id="periodo"><option value="manha" id="opt-manha">Manhã</option><option value="tarde" id="opt-tarde">Tarde</option></select>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;"><label>Categoria (Regras e Pesos)</label><select id="tamanho" style="margin-bottom: 5px;"><option value="Ate20">Carregando...</option></select></div>
+            </div>
+            <button class="btn btn-add" id="btn-salvar" onclick="salvarPacote()" style="margin-top: 10px;">➕ Adicionar à Fila</button>
+        </div>
+
+        <div class="form-box" style="background: #e0f2fe; border-color: #bae6fd;">
+            <label style="color: #0369a1;">🏢 Inserir Parada de Coleta (Fornecedor)</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <select id="select-fornecedor" style="margin-bottom: 0; flex: 1;"><option value="">Selecione fornecedor...</option></select>
+                <button class="btn" style="background:#0284c7; color:white; margin:0; width:auto; padding:0 12px;" onclick="addFornecedorFila()">➕ Inserir</button>
+            </div>
+            <label style="color: #0369a1; font-size: 10px; margin-bottom: 5px;">Vínculo com entrega (opcional)</label>
+            <select id="select-entrega-vincular" style="margin-bottom: 10px; font-size: 11px; padding: 8px;">
+                <option value="">Coleta independente (sem vínculo)</option>
+            </select>
+            <p style="font-size:10px; color:#0369a1; margin: 0 0 10px; line-height:1.4;">
+                Quando vinculada, a coleta é sempre posicionada <b>imediatamente antes</b> da entrega na rota (pickup → delivery).
+            </p>
+            <label style="color: #0369a1; font-size: 10px; margin-bottom: 5px;">Atribuição (Manifesto)</label>
+            <div style="display: flex; gap: 8px;">
+                <select id="select-motorista" style="margin-bottom: 0; flex: 1; padding: 8px; font-size: 11px;"><option value="">Motorista (Opcional)</option></select>
+                <select id="select-veiculo" style="margin-bottom: 0; flex: 1; padding: 8px; font-size: 11px;"><option value="">Veículo (Opcional)</option></select>
+            </div>
+        </div>
+
+        <h4 style="margin: 20px 0 10px; color: var(--primary); font-size: 14px;">Controle de Rotas</h4>
+
+        <div class="filter-box">
+            <label>Data Base:</label>
+            <input type="date" id="filtro-data-operacao" onchange="onChangeFiltroDataRotas();">
+        </div>
+        <details class="rotas-opcoes-av" style="font-size:11px;margin-bottom:12px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;">
+            <summary style="cursor:pointer;font-weight:700;color:var(--primary);text-transform:none;">Opções da tela e da ordem (voltar atrás se precisar)</summary>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;font-weight:600;">
+                <input type="checkbox" id="chk-rotas-subtle-poll" checked style="width:auto;margin:0;"> Atualização em tempo real <strong>suave</strong> (menos “piscar” o mapa)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;text-transform:none;font-weight:600;">
+                <input type="checkbox" id="chk-rotas-intel-ordem" checked style="width:auto;margin:0;"> Inteligência ao subir/descer (proximidade; aviso se a rota em linha reta ficar bem mais longa)
+            </label>
+            <p style="margin:10px 0 0;line-height:1.45;text-transform:none;font-weight:500;color:#64748b;">Se algo estranhar: desmarque as opções acima ou no console use <code style="font-size:10px;">localStorage.setItem('rotas_poll_subtle','0')</code> e/ou <code style="font-size:10px;">localStorage.setItem('rotas_intel_ordem','0')</code>. Para reativar: <code style="font-size:10px;">removeItem</code> dessas chaves ou defina <code>'1'</code>.</p>
+        </details>
+
+        <div class="regras-corte-box">
+            <div style="flex: 1; text-align: center;">
+                <label style="color: #475569; margin: 0;">⏰ Limite Manhã</label>
+                <strong id="lbl-corte-manha" style="font-size: 16px; color: #0284c7;">--:--</strong>
+            </div>
+            <div style="flex: 1; text-align: center; border-left: 1px solid #cbd5e1;">
+                <label style="color: #475569; margin: 0;">⏰ Limite Tarde</label>
+                <strong id="lbl-corte-tarde" style="font-size: 16px; color: #0284c7;">--:--</strong>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <button id="btn-criar-rota" class="btn btn-route" onclick="otimizarRotaEValidarTempo()" style="margin: 0; flex: 2; font-size: 11px;">📍 1. Criar Rota</button>
+            <button id="btn-recalc-rota" class="btn" style="background: #0ea5e9; color: white; margin: 0; flex: 2; font-size: 11px;" onclick="recalcularDistanciasManuais()">🛣️ Recalcular</button>
+            <button class="btn" style="background: #eab308; color: white; margin: 0; flex: 1; font-size: 11px;" onclick="limparRotasDoDia()">🧹 Limpar</button>
+        </div>
+
+        <button class="btn btn-report" onclick="abrirRelatorio()">📋 2. Relatório e Maps</button>
+        <div id="cards-container" style="margin-top: 15px;"><div style="font-size:12px; color:#64748b; text-align:center;">⏳ Inicializando...</div></div>
+
+        <div style="margin-top: 30px; padding-top: 15px; border-top: 1px dashed #cbd5e1;">
+            <button class="btn" style="background: #ef4444; margin: 0;" onclick="sairDoSistema()"><span style="font-size:16px;">🚪</span> Sair e Deslogar</button>
+        </div>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<div id="modal-relatorio" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <h2 style="margin: 0; color: var(--obralight-charcoal); font-weight: 800;">Manifesto de Expedição</h2>
+                <p style="margin: 0; font-size: 13px; color: #64748b;" id="txt-relatorio-base">Relatório Analítico</p>
+            </div>
+            <div>
+                <button class="btn btn-print-modal" style="background: var(--obralight-charcoal); color: white; padding: 10px 15px; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-right: 10px;" onclick="window.print()">🖨️ Imprimir</button>
+                <button class="btn btn-close-modal" style="background: #64748b; color: white; padding: 10px 15px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;" onclick="fecharModal('modal-relatorio')">✖ Fechar</button>
+            </div>
+        </div>
+        <div style="background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; gap: 15px; align-items: center;" class="nao-imprimir">
+            <label style="font-size: 12px; font-weight: bold; color: var(--obralight-charcoal);">Filtrar Turno:</label>
+            <select id="filtro-turno-relatorio" onchange="renderizarConteudoRelatorio()" style="margin: 0; width: 250px; padding: 8px;">
+                <option value="todos">Todos</option><option value="manha">Manhã</option><option value="tarde">Tarde</option>
+            </select>
+        </div>
+        <div id="conteudo-relatorio"></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<script src="/js/api-client.js"></script>
+<script src="/js/rotas.js?v=20260416-05"></script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Obralight - Roteirização e Despacho</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#333333">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root{--charcoal:#333;--orange:#F9801A;--danger:#dc2626;--bg:#f8fafc;--primary:var(--charcoal);--accent:var(--orange)}
+        body{font-family:'Segoe UI',system-ui,sans-serif;margin:0;display:flex;height:100vh;background:var(--bg);color:var(--charcoal);overflow:hidden}
+        .sidebar{width:480px;background:#fff;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;z-index:1000;box-shadow:2px 0 10px rgba(0,0,0,.1)}
+        .header{padding:15px 20px;background:#e2e8f0;color:var(--primary);border-bottom:4px solid var(--accent);display:flex;justify-content:space-between;align-items:center}
+        .logo-obralight{height:40px;width:auto;max-width:200px;object-fit:contain}
+        .cloud-badge{font-size:10px;background:rgba(0,0,0,.05);color:var(--primary);padding:4px 8px;border-radius:4px;font-weight:bold;border:1px solid rgba(0,0,0,.15)}
+        .content{padding:20px;overflow-y:auto;flex-grow:1;display:flex;flex-direction:column}
+        #map{flex-grow:1;z-index:1}
+        .form-box{background:#f1f5f9;padding:15px;border-radius:8px;border:1px solid #e2e8f0;position:relative;margin-bottom:15px}
+        label{display:block;font-size:11px;font-weight:bold;color:#475569;margin-bottom:5px;text-transform:uppercase}
+        input,select{width:100%;padding:10px;margin-bottom:15px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;font-weight:500;color:var(--charcoal)}
+        .btn{width:100%;padding:12px;border:none;border-radius:6px;cursor:pointer;font-weight:bold;color:#fff;transition:.2s;margin-bottom:8px;font-size:13px;text-transform:uppercase}
+        .btn-add{background:var(--accent)} .btn-route{background:var(--primary)} .btn-report{background:#64748b} .btn-clear{background:var(--danger);font-size:11px;padding:10px;margin-top:10px}
+        .btn:hover{opacity:.9} .btn:disabled{opacity:.5;cursor:not-allowed}
+        .alert{padding:12px;border-radius:6px;margin-bottom:15px;display:none;font-size:13px;font-weight:500;line-height:1.4}
+        .alert-danger{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+        .alert-info{background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe}
+        .card{background:#fff;border:1px solid #e2e8f0;padding:12px;margin-bottom:10px;border-radius:6px;border-left:5px solid #64748b;position:relative;transition:.3s}
+        .card.concluida{background:#f0fdf4;opacity:.8;border-color:#16a34a}
+        .badge-ordem{position:absolute;top:10px;right:10px;background:var(--accent);color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px}
+        .card-actions{margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px;display:flex;gap:10px;flex-wrap:wrap}
+        .btn-small{background:none;border:none;font-size:12px;cursor:pointer;color:#64748b;font-weight:600;padding:0}
+        .btn-small:hover{opacity:.7}
+        .specs-table{width:100%;font-size:11px;color:#475569;margin-top:8px;border-top:1px solid #f1f5f9;padding-top:8px;border-collapse:collapse}
+        .custom-pin div{background:var(--accent);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:bold;border:2px solid #fff;box-shadow:0 2px 5px rgba(0,0,0,.4);font-size:12px}
+        .coleta-pin div{border-radius:6px!important;background:#0284c7!important;border:2px solid #fff}
+        .filter-box{background:#e2e8f0;padding:10px;border-radius:6px;display:flex;gap:10px;align-items:center;margin-bottom:10px}
+        .filter-box label{margin:0;color:var(--primary);font-weight:bold;font-size:12px}
+        .filter-box input{margin:0;padding:8px;flex:1}
+        .modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);z-index:3000;justify-content:center;align-items:center}
+        .modal-content{background:#fff;width:85%;max-width:900px;max-height:90vh;border-radius:8px;padding:20px;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,.2);position:relative}
+        .modal-header{border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center}
+        .turno-section{margin-bottom:25px;padding:15px;border-radius:6px;border:1px solid #e2e8f0;background:#f8fafc}
+        .turno-title{font-size:16px;font-weight:bold;margin-bottom:10px;border-bottom:1px solid #cbd5e1;padding-bottom:5px;display:flex;justify-content:space-between;align-items:center}
+        .btn-mic{border:none;background:#e2e8f0;border-radius:4px;cursor:pointer;padding:0 10px;transition:.2s;font-size:14px}
+        .btn-mic.ouvindo{background:#ef4444;color:#fff;animation:pulse 1s infinite}
+        @keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.1)}100%{transform:scale(1)}}
+        #reader{width:100%;display:none;margin-bottom:15px;border-radius:8px;overflow:hidden;border:2px solid #0ea5e9}
+        .relatorio-table{width:100%;border-collapse:collapse;font-size:12px}
+        .relatorio-table th,.relatorio-table td{text-align:left;padding:8px;border-bottom:1px solid #e2e8f0}
+        .relatorio-table th{color:#64748b;font-size:11px;text-transform:uppercase}
+        .btn-gmaps{background:#16a34a;color:#fff;padding:8px 12px;border-radius:4px;text-decoration:none;font-size:12px;font-weight:bold;display:inline-block;border:none;cursor:pointer;transition:.2s}
+        .btn-gmaps:hover{background:#15803d}
+        .sugestoes-box{position:absolute;top:40px;left:0;width:100%;background:#fff;border:1px solid #cbd5e1;border-top:none;max-height:200px;overflow-y:auto;z-index:9999;border-radius:0 0 6px 6px;box-shadow:0 4px 10px rgba(0,0,0,.15);display:none}
+        .sugestao-item{padding:10px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #f1f5f9;color:#334155;line-height:1.4}
+        .sugestao-item:hover{background:#f0f9ff;color:#0284c7}
+        .sugestao-item:last-child{border-bottom:none}
+        #status-nuvem.rotas-sync-quiet{font-size:9px;opacity:.88;transition:opacity .25s}
+        .regras-corte-box{background:#f1f5f9;border:1px solid #cbd5e1;padding:10px;border-radius:6px;margin-bottom:10px;display:flex;gap:10px;align-items:center}
+        @media print{ body *{visibility:hidden} #modal-relatorio,#modal-relatorio *{visibility:visible} #modal-relatorio{position:absolute;left:0;top:0;width:100%;background:none} .modal-content{width:100%;box-shadow:none;border:none} .btn-close-modal,.btn-print-modal,.btn-gmaps,.nao-imprimir{display:none!important} }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <img id="img-logo-empresa" src="" alt="Obralight" class="logo-obralight" onerror="this.style.display='none'" style="display:none;">
+            <div>
+                <p style="margin:0; font-size: 0.8rem; color: #475569; font-weight: bold;" id="txt-nome-empresa">Logística Operacional</p>
+                <p style="margin:0; font-size: 0.65rem; color: #64748b;" id="txt-endereco-base-sidebar">Carregando base...</p>
+            </div>
+        </div>
+        <div id="status-nuvem" class="cloud-badge">⏳ Iniciando</div>
+    </div>
+
+    <div class="content">
+        <div id="msg-erro" class="alert alert-danger"></div>
+        <div id="msg-sucesso" class="alert alert-info"></div>
+
+        <div class="form-box">
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <input type="file" id="input-xml" accept=".xml" style="display:none;" onchange="processarXML(event)">
+                <button class="btn" style="background:#8b5cf6; flex: 1; margin:0;" onclick="document.getElementById('input-xml').click()">📄 NFe (XML)</button>
+                <button class="btn" style="background:#0ea5e9; flex: 1; margin:0;" onclick="abrirCameraBarcode()">📷 Cód. Barras</button>
+            </div>
+            
+            <div id="reader"></div>
+
+            <label>Código de Barras / Chave NFe (Opcional)</label>
+            <input type="text" id="codigo-barras" placeholder="Leitor físico ou câmara" autocomplete="off" style="border-color: #0ea5e9; background: #f0f9ff;">
+
+            <label>Nome do Cliente / Pedido</label>
+            <input type="text" id="nome-cliente" placeholder="Ex: João da Silva" autocomplete="off">
+
+            <label>Endereço de Entrega</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <input type="text" id="endereco-cep" placeholder="CEP" autocomplete="off" style="flex: 1; margin-bottom: 0;" onblur="buscarCepEntrega()">
+                <div style="display: flex; flex: 3; gap: 4px; position: relative;">
+                    <button id="btn-mic-rua" class="btn-mic" type="button" onclick="iniciarVoz('endereco-rua')" title="Voz">🎤</button>
+                    <div style="width: 100%; position: relative;">
+                        <input type="text" id="endereco-rua" placeholder="Rua / Avenida" autocomplete="off" style="width: 100%; margin-bottom: 0;" oninput="buscarSugestoesRua()">
+                        <div id="sugestoes-endereco" class="sugestoes-box"></div>
+                    </div>
+                </div>
+                <input type="text" id="endereco-num" placeholder="Nº" autocomplete="off" style="flex: 1; margin-bottom: 0;">
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px;">
+                <input type="text" id="endereco-bairro" placeholder="Bairro" autocomplete="off" style="flex: 2; margin-bottom: 0;">
+                <input type="text" id="endereco-cidade" value="Belo Horizonte" autocomplete="off" style="flex: 2; margin-bottom: 0;">
+                <select id="endereco-estado" style="flex: 1; margin-bottom: 0;">
+                    <option value="MG" selected>MG</option><option value="SP">SP</option><option value="RJ">RJ</option>
+                </select>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <div style="flex: 1.2;"><label>Data Agendada</label><input type="date" id="data-entrega"></div>
+                <div style="flex: 1;">
+                    <label>Turno Inicial</label>
+                    <select id="periodo"><option value="manha" id="opt-manha">Manhã</option><option value="tarde" id="opt-tarde">Tarde</option></select>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;"><label>Categoria (Regras e Pesos)</label><select id="tamanho" style="margin-bottom: 5px;"><option value="Ate20">Carregando...</option></select></div>
+            </div>
+            <button class="btn btn-add" id="btn-salvar" onclick="salvarPacote()" style="margin-top: 10px;">➕ Adicionar à Fila</button>
+        </div>
+
+        <div class="form-box" style="background: #e0f2fe; border-color: #bae6fd;">
+            <label style="color: #0369a1;">🏢 Inserir Parada de Coleta (Fornecedor)</label>
+            <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                <select id="select-fornecedor" style="margin-bottom: 0; flex: 1;"><option value="">Selecione fornecedor...</option></select>
+                <button class="btn" style="background:#0284c7; color:white; margin:0; width:auto; padding:0 12px;" onclick="addFornecedorFila()">➕ Inserir</button>
+            </div>
+            <label style="color: #0369a1; font-size: 10px; margin-bottom: 5px;">Vínculo com entrega (opcional)</label>
+            <select id="select-entrega-vincular" style="margin-bottom: 10px; font-size: 11px; padding: 8px;">
+                <option value="">Coleta independente (sem vínculo)</option>
+            </select>
+            <p style="font-size:10px; color:#0369a1; margin: 0 0 10px; line-height:1.4;">
+                Quando vinculada, a coleta é sempre posicionada <b>imediatamente antes</b> da entrega na rota (pickup → delivery).
+            </p>
+            <label style="color: #0369a1; font-size: 10px; margin-bottom: 5px;">Atribuição (Manifesto)</label>
+            <div style="display: flex; gap: 8px;">
+                <select id="select-motorista" style="margin-bottom: 0; flex: 1; padding: 8px; font-size: 11px;"><option value="">Motorista (Opcional)</option></select>
+                <select id="select-veiculo" style="margin-bottom: 0; flex: 1; padding: 8px; font-size: 11px;"><option value="">Veículo (Opcional)</option></select>
+            </div>
+        </div>
+
+        <h4 style="margin: 20px 0 10px; color: var(--primary); font-size: 14px;">Controle de Rotas</h4>
+        
+        <div class="filter-box">
+            <label>Data Base:</label>
+            <input type="date" id="filtro-data-operacao" onchange="onChangeFiltroDataRotas();">
+        </div>
+        <details class="rotas-opcoes-av" style="font-size:11px;margin-bottom:12px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;">
+            <summary style="cursor:pointer;font-weight:700;color:var(--primary);text-transform:none;">Opções da tela e da ordem (voltar atrás se precisar)</summary>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;font-weight:600;">
+                <input type="checkbox" id="chk-rotas-subtle-poll" checked style="width:auto;margin:0;"> Atualização em tempo real <strong>suave</strong> (menos “piscar” o mapa)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;text-transform:none;font-weight:600;">
+                <input type="checkbox" id="chk-rotas-intel-ordem" checked style="width:auto;margin:0;"> Inteligência ao subir/descer (proximidade; aviso se a rota em linha reta ficar bem mais longa)
+            </label>
+            <p style="margin:10px 0 0;line-height:1.45;text-transform:none;font-weight:500;color:#64748b;">Se algo estranhar: desmarque as opções acima ou no console use <code style="font-size:10px;">localStorage.setItem('rotas_poll_subtle','0')</code> e/ou <code style="font-size:10px;">localStorage.setItem('rotas_intel_ordem','0')</code>. Para reativar: <code style="font-size:10px;">removeItem</code> dessas chaves ou defina <code>'1'</code>.</p>
+        </details>
+
+        <div class="regras-corte-box">
+            <div style="flex: 1; text-align: center;">
+                <label style="color: #475569; margin: 0;">⏰ Limite Manhã</label>
+                <strong id="lbl-corte-manha" style="font-size: 16px; color: #0284c7;">--:--</strong>
+            </div>
+            <div style="flex: 1; text-align: center; border-left: 1px solid #cbd5e1;">
+                <label style="color: #475569; margin: 0;">⏰ Limite Tarde</label>
+                <strong id="lbl-corte-tarde" style="font-size: 16px; color: #0284c7;">--:--</strong>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <button id="btn-criar-rota" class="btn btn-route" onclick="otimizarRotaEValidarTempo()" style="margin: 0; flex: 2; font-size: 11px;">📍 1. Criar Rota</button>
+            <button id="btn-recalc-rota" class="btn" style="background: #0ea5e9; color: white; margin: 0; flex: 2; font-size: 11px;" onclick="recalcularDistanciasManuais()">🛣️ Recalcular</button>
+            <button class="btn" style="background: #eab308; color: white; margin: 0; flex: 1; font-size: 11px;" onclick="limparRotasDoDia()">🧹 Limpar</button>
+        </div>
+
+        <button class="btn btn-report" onclick="abrirRelatorio()">📋 2. Relatório e Maps</button>
+        <div id="cards-container" style="margin-top: 15px;"><div style="font-size:12px; color:#64748b; text-align:center;">⏳ Inicializando...</div></div>
+        
+        <div style="margin-top: 30px; padding-top: 15px; border-top: 1px dashed #cbd5e1;">
+            <button class="btn" style="background: #ef4444; margin: 0;" onclick="sairDoSistema()"><span style="font-size:16px;">🚪</span> Sair e Deslogar</button>
+        </div>
+    </div>
+</div>
+
+<div id="map"></div>
+
+<div id="modal-relatorio" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <h2 style="margin: 0; color: var(--obralight-charcoal); font-weight: 800;">Manifesto de Expedição</h2>
+                <p style="margin: 0; font-size: 13px; color: #64748b;" id="txt-relatorio-base">Relatório Analítico</p>
+            </div>
+            <div>
+                <button class="btn btn-print-modal" style="background: var(--obralight-charcoal); color: white; padding: 10px 15px; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-right: 10px;" onclick="window.print()">🖨️ Imprimir</button>
+                <button class="btn btn-close-modal" style="background: #64748b; color: white; padding: 10px 15px; border:none; border-radius:4px; font-weight:bold; cursor:pointer;" onclick="fecharModal('modal-relatorio')">✖ Fechar</button>
+            </div>
+        </div>
+        <div style="background: #f1f5f9; padding: 15px; border-radius: 6px; margin-bottom: 20px; display: flex; gap: 15px; align-items: center;" class="nao-imprimir">
+            <label style="font-size: 12px; font-weight: bold; color: var(--obralight-charcoal);">Filtrar Turno:</label>
+            <select id="filtro-turno-relatorio" onchange="renderizarConteudoRelatorio()" style="margin: 0; width: 250px; padding: 8px;">
+                <option value="todos">Todos</option><option value="manha">Manhã</option><option value="tarde">Tarde</option>
+            </select>
+        </div>
+        <div id="conteudo-relatorio"></div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+<script src="/js/api-client.js"></script>
+<script src="/js/rotas.js?v=20260416-05"></script>
+
+</body>
+</html>

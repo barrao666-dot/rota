@@ -1,0 +1,67 @@
+:root { --obralight-charcoal: #333333; --obralight-orange: #F9801A; --danger: #dc2626; --bg: #f8fafc; --primary: var(--obralight-charcoal); --accent: var(--obralight-orange); }
+body { font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; display: flex; height: 100vh; background: var(--bg); color: var(--obralight-charcoal); overflow: hidden; }
+
+.sidebar { width: 480px; background: white; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; z-index: 1000; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
+.header { padding: 15px 20px; background: #e2e8f0; color: var(--primary); border-bottom: 4px solid var(--accent); display: flex; justify-content: space-between; align-items: center; }
+
+/* ESSA É A REGRA QUE FALTAVA E CAUSOU O PROBLEMA NA IMAGEM: */
+.logo-obralight { height: 38px; width: auto; max-width: 100%; object-fit: contain; }
+
+.cloud-badge { font-size: 10px; background: rgba(0,0,0,0.05); color: var(--primary); padding: 4px 8px; border-radius: 4px; font-weight: bold; border: 1px solid rgba(0,0,0,0.15); }
+
+.content { padding: 20px; overflow-y: auto; flex-grow: 1; }
+#map { flex-grow: 1; z-index: 1; }
+
+.form-box { background: #f1f5f9; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; position: relative; margin-bottom: 15px;}
+label { display: block; font-size: 11px; font-weight: bold; color: #475569; margin-bottom: 5px; text-transform: uppercase; }
+input, select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-family: inherit; font-weight: 500; color: var(--obralight-charcoal);}
+
+.btn { width: 100%; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; transition: 0.2s; margin-bottom: 8px; font-size: 13px; text-transform: uppercase; }
+.btn-add { background: var(--accent); } 
+.btn-route { background: var(--primary); } 
+.btn-report { background: #64748b; }
+.btn-clear { background: var(--danger); font-size: 11px; padding: 10px; margin-top: 10px;}
+.btn:hover { opacity: 0.9; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.alert { padding: 12px; border-radius: 6px; margin-bottom: 15px; display: none; font-size: 13px; font-weight: 500; line-height: 1.4;}
+.alert-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+.alert-info { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+.aviso-corte { font-size: 10px; color: var(--danger); font-weight: bold; margin-top: -10px; margin-bottom: 10px; display: block; }
+
+.card { background: #fff; border: 1px solid #e2e8f0; padding: 12px; margin-bottom: 10px; border-radius: 6px; border-left: 5px solid #64748b; position: relative; transition: 0.3s;}
+.card.concluida { background: #f0fdf4; opacity: 0.8; border-color: #16a34a; }
+.badge-ordem { position: absolute; top: 10px; right: 10px; background: var(--accent); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 12px; }
+.card-actions { margin-top: 8px; border-top: 1px dashed #e2e8f0; padding-top: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+.btn-small { background: none; border: none; font-size: 12px; cursor: pointer; color: #64748b; font-weight: 600; padding: 0; }
+.btn-small:hover { opacity: 0.7; } 
+.specs-table { width: 100%; font-size: 11px; color: #475569; margin-top: 8px; border-top: 1px solid #f1f5f9; padding-top: 8px; border-collapse: collapse; }
+
+/* PINOS DO MAPA */
+.custom-pin div { background: var(--accent); color: white; border-radius: 50%; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.4); font-size: 12px;}
+.coleta-pin div { border-radius: 6px !important; background: #0284c7 !important; border: 2px solid #fff; }
+
+.filter-box { background: #e2e8f0; padding: 10px; border-radius: 6px; display: flex; gap: 10px; align-items: center; margin-bottom: 10px;}
+.filter-box label { margin: 0; color: var(--primary); font-weight: bold; font-size: 12px;}
+.filter-box input { margin: 0; padding: 8px; flex: 1; }
+
+/* MODAIS */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 3000; justify-content: center; align-items: center; }
+.modal-content { background: white; width: 85%; max-width: 900px; max-height: 90vh; border-radius: 8px; padding: 20px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.2); position:relative;}
+.modal-header { border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+.turno-section { margin-bottom: 25px; padding: 15px; border-radius: 6px; border: 1px solid #e2e8f0; background: #f8fafc; }
+.turno-title { font-size: 16px; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; display: flex; justify-content: space-between; align-items: center;}
+.relatorio-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.relatorio-table th, .relatorio-table td { text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0; }
+.relatorio-table th { color: #64748b; font-size: 11px; text-transform: uppercase; }
+.btn-gmaps { background: #16a34a; color: white; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 12px; font-weight: bold; display: inline-block; border: none; cursor: pointer; transition: 0.2s;}
+.btn-gmaps:hover { background: #15803d; }
+
+@media print {
+    body * { visibility: hidden; }
+    #modal-relatorio, #modal-relatorio * { visibility: visible; }
+    #modal-relatorio { position: absolute; left: 0; top: 0; width: 100%; background: none; }
+    .modal-content { width: 100%; box-shadow: none; border: none; }
+    .btn-close-modal, .btn-print-modal, .btn-gmaps { display: none !important; }
+    .nao-imprimir { display: none !important; }
+}

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Rota++ | Gestão Master SaaS</title>
+    <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body onload="iniciarPainel()">
+    <div class="container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h1 style="margin: 0; color: #1e293b;">Painel Master | Rota++ SaaS</h1>
+            <button onclick="localStorage.removeItem('auth_token'); localStorage.removeItem('dados_empresa'); localStorage.removeItem('dados_operador'); try{sessionStorage.removeItem('rota_plus_master_token_backup');}catch(e){} window.location.href='/index.html'" style="padding: 8px 15px; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; background: #fff; font-weight: bold;">Deslogar</button>
+        </div>
+
+        <div class="dash-top">
+            <div class="dash-card" style="border-left: 4px solid #3b82f6;">
+                <h3>Clientes (Assinaturas)</h3>
+                <div class="valor" id="metric-clientes">0 <span style="font-size: 14px; color: #64748b; font-weight: normal;">(0 ativos)</span></div>
+            </div>
+            <div class="dash-card" style="border-left: 4px solid #10b981;">
+                <h3>Receita Mensal</h3>
+                <div class="valor destaque" id="metric-receita" style="color: #10b981;">R$ 0,00</div>
+            </div>
+            <div class="dash-card" style="border-left: 4px solid #f59e0b;">
+                <h3>Operação Ativa</h3>
+                <div class="valor" style="color: #d97706;" id="metric-operacao">0 <span style="font-size: 14px; color: #64748b; font-weight: normal;">veículos</span></div>
+            </div>
+        </div>
+        
+        <h2 id="titulo-form">🏢 Cadastrar Nova Assinatura</h2>
+        <div id="msg-alerta" class="alert"></div>
+
+        <form id="form-empresa" onsubmit="event.preventDefault(); salvarEmpresa();">
+            <div class="secao" style="border-left-color: #333;">
+                <div class="grid">
+                    <div><label>CPF ou CNPJ</label><input type="text" id="emp-documento" placeholder="Apenas números" onblur="buscarDocumento()" required></div>
+                    <div><label>Nome / Razão Social</label><input type="text" id="emp-nome" required></div>
+                </div>
+                <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;">
+                <div style="display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div><label>CEP</label><input type="text" id="emp-cep" onblur="buscarCep()"></div>
+                    <div style="grid-column: span 2;"><label>Rua</label><input type="text" id="emp-rua"></div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 15px; margin-bottom: 15px;">
+                    <div><label>Número</label><input type="text" id="emp-numero"></div>
+                    <div style="grid-column: span 2;"><label>Complemento</label><input type="text" id="emp-complemento"></div>
+                </div>
+                <div class="grid-3">
+                    <div><label>Bairro</label><input type="text" id="emp-bairro"></div>
+                    <div><label>Cidade</label><input type="text" id="emp-cidade"></div>
+                    <div><label>UF</label><input type="text" id="emp-uf" maxlength="2"></div>
+                </div>
+            </div>
+
+            <div class="secao" style="border-left-color: #10b981;">
+                <h3>📊 Plano Contratado e Faturamento</h3>
+                <div class="grid-4" style="margin-bottom: 15px;">
+                    <div><label>Lim. Usuários (Painel)</label><input type="number" id="emp-limite-usuarios" value="3"></div>
+                    <div><label>Lim. Motoristas</label><input type="number" id="emp-limite-motoristas" value="5"></div>
+                    <div><label>Lim. Veículos</label><input type="number" id="emp-limite-veiculos" value="5"></div>
+                    <div><label>Lim. Bases</label><input type="number" id="emp-limite-bases" value="1"></div>
+                </div>
+                <div class="grid">
+                    <div><label>Valor Mensal (R$)</label><input type="number" step="0.01" id="emp-valor-plano" placeholder="Ex: 299.90"></div>
+                    <div><label>Vencimento</label><input type="date" id="emp-vencimento"></div>
+                </div>
+            </div>
+
+            <div class="secao" style="border-left-color: #0284c7;">
+                <h3>🎨 White-Label e Acesso Admin</h3>
+                <div class="grid">
+                    <div>
+                        <label>Logo (.png/.jpg)</label><input type="file" id="emp-logo">
+                        <small id="aviso-logo" style="color: #0284c7; display: none;">Deixe vazio para manter a logo.</small>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <div style="flex: 1;"><label>Cor Principal</label><input type="color" id="emp-cor1" value="#333333"></div>
+                        <div style="flex: 1;"><label>Cor Secundária</label><input type="color" id="emp-cor2" value="#F9801A"></div>
+                    </div>
+                </div>
+                <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;">
+                <div class="grid">
+                    <div><label>Usuário Painel</label><input type="text" id="emp-usuario"></div>
+                    <div><label>E-mail (Recuperação)</label><input type="email" id="emp-email" required></div>
+                </div>
+                <div style="position: relative;">
+                    <label>Senha de Acesso</label>
+                    <input type="password" id="emp-senha" style="padding-right: 40px;">
+                    <button type="button" onclick="toggleSenha('emp-senha', this)" style="position: absolute; right: 10px; top: 30px; background: none; border: none; cursor: pointer; font-size: 16px;">👁️</button>
+                </div>
+            </div>
+            <div class="secao" style="border-left-color: #f43f5e;">
+    <h3>🔌 Integrações Avançadas (APIs)</h3>
+    <div class="grid">
+        <div style="grid-column: span 2;">
+            <label>Chave API OpenRouteService (Motor de Mapas)</label>
+            <input type="text" id="emp-api-mapas" placeholder="Deixe em branco para usar a chave padrão do sistema SaaS">
+        </div>
+    </div>
+</div>
+
+            <div class="secao" style="border-left-color: #f59e0b;">
+                <h3>⚙️ Regras da Conta</h3>
+                <div class="grid">
+                    <div><label>Status da Conta</label><select id="emp-status"><option value="ativo">🟢 Ativa</option><option value="bloqueado">🔴 Bloqueada</option></select></div>
+                    <div><label>Programa Obralight+</label><select id="emp-programa-parceiros"><option value="inativo">Inativo</option><option value="ativo">Ativo</option></select></div>
+                </div>
+                <div><label>Auditoria de Cargas</label><select id="emp-auditoria-peso"><option value="sim">Sim (Sempre incluir dimensões na coleta)</option><option value="nao">Não</option></select></div>
+            </div>
+
+            <div class="secao" style="border-left-color: #9333ea; display: none;">
+                <input type="hidden" id="emp-db-tipo" value="geral"><input type="hidden" id="emp-db-string" value="">
+            </div>
+
+            <button type="submit" id="btn-salvar" class="btn-salvar">💾 Registrar Cliente e Enviar Dados</button>
+            <button type="button" id="btn-cancelar" class="btn-cancelar" onclick="cancelarEdicao()">❌ Cancelar Edição</button>
+        </form>
+        
+        <hr style="border: 0; border-top: 2px solid #eee; margin: 40px 0 20px 0;">
+        <h2>📋 Contas Cadastradas</h2>
+        <table style="width: 100%; border-collapse: collapse; margin-top: 15px; background: #fff; font-size: 14px;">
+            <thead><tr style="background: #f8fafc; text-align: left;">
+                <th style="padding: 12px; border-bottom: 2px solid #e2e8f0;">Cliente</th><th style="padding: 12px; border-bottom: 2px solid #e2e8f0;">Plano / Venc.</th>
+                <th style="padding: 12px; border-bottom: 2px solid #e2e8f0;">Status</th><th style="padding: 12px; border-bottom: 2px solid #e2e8f0;">Ações</th>
+            </tr></thead>
+            <tbody id="lista-empresas"><tr><td colspan="4" style="text-align: center; padding: 15px;">Carregando...</td></tr></tbody>
+        </table>
+    </div>
+
+    <script src="/js/api-client.js"></script>
+    <script src="/js/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Obralight - App do Motorista</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#333333">
+    <link rel="stylesheet" href="/css/motorista.css">
+</head>
+<body>
+
+    <div class="topbar">
+        <h3 class="header-title">
+            🚚 App Motorista
+            <span id="indicador-nuvem" class="status-badge">🟢 Online</span>
+        </h3>
+        <button id="btn-instalar-app" class="btn-install hidden">Instalar app</button>
+    </div>
+
+    <div id="mapa-motorista"></div>
+
+    <div class="controls">
+        <div class="controls-row">
+            <div class="control-col">
+                <label>Data:</label>
+                <input type="date" id="data-operacao">
+            </div>
+            <div class="control-col">
+                <label>Turno:</label>
+                <select id="turno">
+                    <option value="manha">Manhã</option>
+                    <option value="tarde">Tarde</option>
+                </select>
+            </div>
+        </div>
+        <button id="btn-rota-completa" class="btn-rota-completa">📍 Abrir Rota Inteira no GPS</button>
+    </div>
+
+    <div id="status-sync" class="status-sync">Atualizando sistema...</div>
+
+    <div id="lista-entregas"></div>
+
+    <div id="loading" class="overlay-loading">
+        <div class="spinner"></div>
+        <span id="loading-text">Sincronizando...</span>
+    </div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/api-client.js"></script>
+<script src="/js/motorista.js"></script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | Rota++ SaaS</title>
+    <link rel="stylesheet" href="/css/login.css">
+</head>
+<body>
+    <div class="left-side">
+        <div class="left-wrap">
+            <div class="left-brand">
+                <div class="brand-mark">🚌</div>
+                <div>
+                    <div class="brand-title">Rota++</div>
+                    <div class="brand-sub">Modernizando a logística e a roteirização com tecnologia inteligente</div>
+                </div>
+            </div>
+
+            <div class="benefits">
+                <div class="benefit-card">
+                    <div class="benefit-title">Otimização Inteligente de Trajetos</div>
+                    <div class="benefit-desc">Cálculo automatizado das rotas mais eficientes e rápidas entre a origem e múltiplos destinos, reduzindo custos com combustível e tempo de deslocamento.</div>
+                </div>
+                <div class="benefit-card">
+                    <div class="benefit-title">Torre de Controle em Tempo Real</div>
+                    <div class="benefit-desc">Acompanhamento ao vivo de toda a operação através de um mapa interativo, permitindo visualizar a localização exata de cada veículo e o progresso das rotas.</div>
+                </div>
+                <div class="benefit-card">
+                    <div class="benefit-title">Gestão Centralizada de Frota e Motoristas</div>
+                    <div class="benefit-desc">Painel completo para o gerenciamento de veículos, motoristas e clientes, garantindo que as entregas sejam despachadas para os recursos corretos.</div>
+                </div>
+                <div class="benefit-card">
+                    <div class="benefit-title">Agilidade na Entrada de Dados</div>
+                    <div class="benefit-desc">Estrutura preparada para receber informações de destinos de forma rápida (como integrações ou leitura de arquivos), acelerando o início da operação diária.</div>
+                </div>
+                <div class="benefit-card">
+                    <div class="benefit-title">Controle de Status e Andamento</div>
+                    <div class="benefit-desc">Visão clara do que está "Em Rota", "Atrasado" ou "Concluído", com travas de segurança sistêmicas para não perder o tempo de atividade das entregas em andamento.</div>
+                </div>
+                <div class="benefit-card">
+                    <div class="benefit-title">Ambiente Seguro e Segmentado</div>
+                    <div class="benefit-desc">Acesso exclusivo e isolado para cada empresa cliente, enquanto o administrador (Master) mantém a visão global de saúde e faturamento do sistema.</div>
+                </div>
+            </div>
+
+            <div class="left-footer">
+                <div class="left-logo">Rota++</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="right-side">
+        <div class="login-box">
+            <div class="login-top">
+                <div class="login-logo">Rota++</div>
+                <div class="login-slogan">Acesse sua conta para gerenciar a operação</div>
+            </div>
+
+            <h2>Bem-vindo de volta</h2>
+            <p>Entre com seu usuário e senha para continuar.</p>
+
+            <div class="tabs">
+                <div class="tab active" id="tab-empresa" onclick="mudarAba('empresa')">🏢 Gestor da empresa</div>
+                <div class="tab" id="tab-operador" onclick="mudarAba('operador')">📦 Operador (rotas)</div>
+            </div>
+
+            <p id="hint-contexto" class="hint-contexto">Você será direcionado ao <strong>painel administrativo</strong> da empresa (cadastros e gestão).</p>
+
+            <div id="msg-erro" class="alert alert-error"></div>
+            <div id="msg-sucesso" class="alert" style="background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;"></div>
+
+            <form id="form-login" onsubmit="event.preventDefault(); fazerLogin();">
+                <input type="hidden" id="tipo-login" value="empresa">
+                
+                <div class="input-group">
+                    <label id="lbl-usuario">Email ou CPF</label>
+                    <input type="text" id="campo-usuario" placeholder="seuemail@dominio.com.br ou 12345678900" required autocomplete="username">
+                </div>
+                
+                <div class="input-group" style="position: relative; margin-bottom: 5px;">
+                    <label>Senha de Acesso</label>
+                    <input type="password" id="campo-senha" placeholder="••••••••" required autocomplete="current-password" style="padding-right: 40px;">
+                    <button type="button" onclick="toggleSenha('campo-senha', this)" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; font-size: 16px;" title="Mostrar/Ocultar senha">👁️</button>
+                </div>
+                
+                <div class="login-row">
+                    <label class="remember">
+                        <input type="checkbox" id="lembrar-me">
+                        Lembrar de mim
+                    </label>
+                    <a class="forgot" href="#" onclick="recuperarSenha()">Esqueceu a senha?</a>
+                </div>
+                
+                <button type="submit" id="btn-submit" class="btn-login">Entrar no painel da empresa</button>
+            </form>
+
+            <div class="login-footnote">
+                Ao entrar, você concorda com os termos de serviço e política de privacidade da plataforma.
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+:root { --charcoal: #333333; --orange: #f9801a; --bg: #f1f5f9; }
+body { font-family: "Segoe UI", system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--charcoal); -webkit-tap-highlight-color: transparent; }
+
+.topbar { background: var(--charcoal); padding: 15px 20px; color: white; border-bottom: 4px solid var(--orange); position: sticky; top: 0; z-index: 2000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+.header-title { margin: 0; font-size: 18px; display: flex; align-items: center; justify-content: space-between; }
+.status-badge { font-size: 12px; font-weight: 700; background: rgba(255,255,255,0.2); padding: 4px 8px; border-radius: 4px; }
+.btn-install { margin-top: 10px; width: 100%; border: 1px solid rgba(255,255,255,0.3); color: #fff; background: transparent; border-radius: 6px; padding: 8px 10px; font-weight: 700; }
+.hidden { display: none; }
+
+.controls { background: white; padding: 15px; border-bottom: 1px solid #cbd5e1; }
+.controls-row { display: flex; gap: 10px; margin-bottom: 10px; }
+.control-col { flex: 1; }
+.controls label { font-size: 12px; color: #64748b; font-weight: 700; text-transform: uppercase; }
+.controls select, .controls input { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #cbd5e1; border-radius: 6px; margin-top: 5px; font-weight: 700; color: var(--charcoal); box-sizing: border-box; }
+.btn-rota-completa { width: 100%; padding: 15px; background: var(--charcoal); color: #fff; border: none; border-radius: 6px; font-weight: 700; text-transform: uppercase; font-size: 14px; }
+
+.status-sync { text-align: center; font-size: 12px; color: #64748b; padding: 10px; font-weight: 700; background: white; }
+#mapa-motorista { height: 56vh; min-height: 280px; width: 100%; border-bottom: 4px solid #3b82f6; z-index: 1000; }
+#lista-entregas { padding: 15px; padding-bottom: 80px; }
+
+.card { background: white; border-radius: 12px; padding: 18px; margin-bottom: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); border: 2px solid #cbd5e1; position: relative; }
+.card.pendente { border-color: #3b82f6; }
+.card.em_transito { background: #eff6ff; border-color: #0ea5e9; }
+.card.em_atendimento { background: #fffbeb; border-color: #f59e0b; }
+.card.concluida { background: #f0fdf4; border-color: #16a34a; opacity: 0.8; }
+
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 10px; }
+.ordem-badge { font-size: 20px; font-weight: 900; color: var(--charcoal); }
+.peso-badge { font-size: 13px; background: #e2e8f0; padding: 4px 8px; border-radius: 4px; font-weight: 700; color: #475569; }
+.cliente { font-size: 18px; font-weight: 700; color: #334155; margin-bottom: 6px; }
+.endereco { font-size: 15px; color: #475569; margin-bottom: 15px; line-height: 1.4; }
+.distancia { font-size: 13px; color: #0284c7; font-weight: 700; margin-bottom: 15px; }
+
+.btn { width: 100%; padding: 18px; border: none; border-radius: 8px; font-size: 16px; font-weight: 900; cursor: pointer; transition: 0.2s; margin-bottom: 10px; text-transform: uppercase; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+.btn-maps { background: #f8fafc; color: #0284c7; border: 2px solid #bae6fd; box-shadow: none; }
+.btn-partir { background: #3b82f6; color: white; }
+.btn-cheguei { background: #f59e0b; color: white; }
+.btn-concluir { background: #16a34a; color: white; }
+.btn-falha { background: #ef4444; color: white; font-size: 14px; padding: 12px; }
+
+.metricas { display: flex; justify-content: space-between; background: #f1f5f9; padding: 12px; border-radius: 6px; font-size: 12px; margin-bottom: 15px; border: 1px solid #cbd5e1; }
+.metricas div { text-align: center; flex: 1; }
+.metricas b { display: block; font-size: 15px; color: var(--charcoal); margin-top: 4px; }
+.metricas.realizado { background: #dcfce7; border-color: #bbf7d0; }
+.metricas.realizado b { color: #16a34a; }
+.metrica-prevista b { color: #0284c7; }
+
+.cronometro-ativo { font-size: 15px; text-align: center; margin-bottom: 12px; font-weight: 700; padding: 12px; border-radius: 6px; }
+.cronometro-ativo.transito { color: #0284c7; background: #e0f2fe; border: 1px solid #bae6fd; }
+.cronometro-ativo.atendimento { color: #d97706; background: #fef3c7; border: 1px solid #fde68a; }
+.status-finalizado { color: #15803d; font-size: 16px; font-weight: 700; text-align: center; padding: 10px; }
+
+.empty-state { text-align: center; padding: 30px; color: #64748b; }
+.overlay-loading { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center; flex-direction: column; color: white; font-weight: 700; font-size: 18px; }
+.spinner { border: 4px solid rgba(255,255,255,0.3); border-top: 4px solid white; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin-bottom: 15px; }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+.custom-pin div { background: #3b82f6; color: white; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 900; border: 2px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.5); font-size: 14px; }
+.base-pin div { background: #334155; color: white; border-radius: 6px; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; border: 2px solid white; font-size: 12px; }

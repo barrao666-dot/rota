@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="88" fill="#333333"/>
+  <rect x="42" y="384" width="428" height="54" rx="27" fill="#f9801a"/>
+  <rect x="72" y="166" width="246" height="158" rx="28" fill="#38bdf8"/>
+  <rect x="282" y="206" width="158" height="118" rx="24" fill="#f8fafc"/>
+  <circle cx="164" cy="356" r="34" fill="#e2e8f0"/>
+  <circle cx="360" cy="356" r="34" fill="#e2e8f0"/>
+  <text x="256" y="126" text-anchor="middle" fill="#ffffff" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700">OBRA</text>
+</svg>
