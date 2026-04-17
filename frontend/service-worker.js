@@ -1,7 +1,6 @@
-const CACHE_NAME = 'rota-pp-pwa-v5';
+const CACHE_NAME = 'rota-pp-pwa-v6';
 const APP_SHELL = [
     '/index.html',
-    '/empresa/index.html',
     '/empresa/painel.html',
     '/operacao/motorista.html',
     '/css/motorista.css',
@@ -9,12 +8,12 @@ const APP_SHELL = [
     '/css/painel.css',
     '/css/dashboard.css',
     '/js/api-client.js',
-    '/js/motorista.js',
     '/js/login.js',
     '/js/painel.js',
     '/js/footer-rfs.js',
     '/js/pwa-bootstrap.js',
     '/manifest.json',
+    '/motorista.manifest.json',
     '/icons/icon-192.svg',
     '/icons/icon-512.svg',
     'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
@@ -26,7 +25,8 @@ const APP_SHELL = [
 // em versões antigas do service worker.
 const NUNCA_CACHEAR = [
     '/operacao/rotas.html',
-    '/js/rotas.js'
+    '/js/rotas.js',
+    '/js/motorista.js'
 ];
 
 /** Cache API só permite armazenar GET com esquema http(s). */

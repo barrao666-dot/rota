@@ -6,6 +6,45 @@ async function aplicarMigracoes() {
     await garantirColunaColetaVinculada();
     await garantirUniqueEmpresasDocumento();
     await garantirColunaHoraPrevista();
+    await garantirTabelaMotoristasPosicao();
+}
+
+async function tabelaExiste(tabela) {
+    const [rows] = await db.query(
+        `SELECT COUNT(*) AS qtd
+           FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE()
+            AND TABLE_NAME = ?`,
+        [tabela]
+    );
+    return rows && rows[0] && Number(rows[0].qtd) > 0;
+}
+
+// Rastreamento em tempo real: uma linha por (empresa, usuário) atualizada
+// via UPSERT. O painel de rotas lê todas as posições "frescas" (< 10 min)
+// dessa empresa e desenha pinos pulsantes no mapa.
+async function garantirTabelaMotoristasPosicao() {
+    try {
+        const existe = await tabelaExiste('motoristas_posicao');
+        if (existe) return;
+        await db.query(
+            `CREATE TABLE motoristas_posicao (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                empresa_id INT NOT NULL,
+                usuario_id INT NOT NULL,
+                lat DECIMAL(10,8) NULL,
+                lng DECIMAL(11,8) NULL,
+                velocidade DECIMAL(6,2) NULL,
+                precisao DECIMAL(7,2) NULL,
+                atualizado_em DATETIME NOT NULL,
+                UNIQUE KEY uk_mot_pos (empresa_id, usuario_id),
+                KEY idx_mot_pos_emp_tempo (empresa_id, atualizado_em)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        );
+        console.log('[Rota++] migração: tabela motoristas_posicao criada.');
+    } catch (erro) {
+        console.warn('[Rota++] falha ao criar motoristas_posicao:', erro && erro.message);
+    }
 }
 
 // ETA calculado pelo otimizador (hora absoluta de chegada na parada).

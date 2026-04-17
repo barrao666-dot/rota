@@ -3,115 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Acesso Empresa | Rota++</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #e2e8f0; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .login-box { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 100%; max-width: 350px; text-align: center; }
-        .login-box h2 { color: #333; margin-top: 0; margin-bottom: 25px; }
-        .input-group { margin-bottom: 20px; text-align: left; }
-        .input-group label { display: block; margin-bottom: 5px; color: #555; font-weight: bold; font-size: 14px; }
-        .input-group input { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 4px; box-sizing: border-box; font-size: 15px; outline: none; transition: border-color 0.2s; }
-        .input-group input:focus { border-color: #0284c7; }
-        .btn-entrar { background: #0284c7; color: white; border: none; padding: 12px; width: 100%; border-radius: 4px; font-size: 16px; font-weight: bold; cursor: pointer; transition: background 0.2s; margin-bottom: 15px; }
-        .btn-entrar:hover { background: #0369a1; }
-        .links { font-size: 13px; color: #64748b; }
-        .links a { color: #0284c7; text-decoration: none; font-weight: bold; cursor: pointer; }
-        .links a:hover { text-decoration: underline; }
-        .msg-erro { color: #dc2626; background: #fee2e2; padding: 10px; border-radius: 4px; font-size: 14px; margin-bottom: 15px; display: none; border: 1px solid #fecaca; }
-    </style>
+    <title>Acesso | Rota++</title>
+    <!-- Tela única de login: esta URL redireciona pro /index.html
+         (mantida só por compatibilidade com bookmarks antigos). -->
+    <meta http-equiv="refresh" content="0; url=/index.html">
+    <script>window.location.replace('/index.html');</script>
 </head>
 <body>
-
-    <div class="login-box">
-        <h2>🚚 Acesso Parceiro</h2>
-        
-        <div id="mensagem-erro" class="msg-erro">Usuário ou senha incorretos!</div>
-
-        <div class="input-group">
-            <label for="usuario">Usuário da Empresa</label>
-            <input type="text" id="usuario" placeholder="Ex: suaempresa.admin" required>
-        </div>
-
-        <div class="input-group">
-            <label for="senha">Senha</label>
-            <input type="password" id="senha" placeholder="••••••••" required>
-        </div>
-
-        <button class="btn-entrar" onclick="fazerLogin()">Acessar Painel</button>
-
-        <div class="links">
-            Esqueceu os dados? <a onclick="esqueciSenha()">Recuperar senha</a>
-        </div>
-    </div>
-
-    <script>
-        // Função de placeholder para recuperação de senha (faremos depois)
-        function esqueciSenha() {
-            alert("A tela de digitar o e-mail para recuperar a senha será aberta aqui!");
-        }
-
-        async function fazerLogin() {
-            const user = document.getElementById('usuario').value;
-            const pass = document.getElementById('senha').value;
-            const caixaErro = document.getElementById('mensagem-erro');
-            const botao = document.querySelector('.btn-entrar');
-
-            if (!user || !pass) {
-                caixaErro.innerText = "Por favor, preencha usuário e senha.";
-                caixaErro.style.display = 'block';
-                return;
-            }
-
-            // Desativa o botão enquanto carrega
-            botao.innerText = "Aguarde...";
-            botao.disabled = true;
-            caixaErro.style.display = 'none';
-
-            try {
-                // Chama a NOSSA NOVA ROTA do servidor
-                const resposta = await fetch('/api/login/empresa', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ usuario: user, senha: pass })
-                });
-
-                const dados = await resposta.json();
-
-                if (resposta.ok) {
-                    if (dados.token) localStorage.setItem('auth_token', dados.token);
-                    if (dados.master) {
-                        localStorage.removeItem('dados_empresa');
-                        localStorage.removeItem('dados_operador');
-                        window.location.href = '/master/dashboard.html';
-                        return;
-                    }
-                    localStorage.removeItem('dados_operador');
-                    localStorage.setItem('dados_empresa', JSON.stringify(dados.empresa));
-                    window.location.href = 'painel.html';
-                } else {
-                    // ERRO! (Senha errada ou empresa bloqueada)
-                    caixaErro.innerText = dados.erro;
-                    caixaErro.style.display = 'block';
-                    botao.innerText = "Acessar Painel";
-                    botao.disabled = false;
-                }
-            } catch (erro) {
-                caixaErro.innerText = "Erro ao conectar no servidor.";
-                caixaErro.style.display = 'block';
-                botao.innerText = "Acessar Painel";
-                botao.disabled = false;
-            }
-        }
-
-        // Permite dar 'Enter' no teclado para logar
-        document.getElementById("senha").addEventListener("keypress", function(event) {
-            if (event.key === "Enter") {
-                event.preventDefault();
-                fazerLogin();
-            }
-        });
-    </script>
-    <script src="/js/pwa-bootstrap.js?v=1" defer></script>
-    <script src="/js/footer-rfs.js?v=1" defer></script>
+    <p>Redirecionando para <a href="/index.html">o login único</a>...</p>
 </body>
 </html>

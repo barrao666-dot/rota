@@ -30,6 +30,9 @@ router.post('/empresa', async (req, res) => {
     } catch (erro) { res.status(500).json({ erro: 'Erro interno no servidor.' }); }
 });
 
+// Login gerencial/operacional — APENAS perfis que não sejam "motorista".
+// Operador e admin acessam o painel de rotas/gestão. Motorista NÃO pode
+// entrar por aqui; ele tem tela própria em /operacao/login.html.
 router.post('/operador', async (req, res) => {
     try {
         const { login, senha } = req.body;
@@ -39,6 +42,10 @@ router.post('/operador', async (req, res) => {
         const operador = linhas[0];
         if (operador.status !== 'ativo' || operador.empresa_status !== 'ativo') return res.status(403).json({ erro: 'Acesso bloqueado.' });
 
+        if (String(operador.perfil || '').toLowerCase() === 'motorista') {
+            return res.status(403).json({ erro: 'Este usuário é motorista. Acesse pelo aplicativo do motorista.' });
+        }
+
         const senhaValida = await bcrypt.compare(senha, operador.senha);
         if (!senhaValida) return res.status(401).json({ erro: 'Login ou senha inválidos.' });
 
@@ -46,6 +53,47 @@ router.post('/operador', async (req, res) => {
         const token = signToken({ role: 'operador', empresaId: operador.empresa_id, usuarioId: operador.id });
         res.json({ operador, token });
     } catch (erro) { res.status(500).json({ erro: 'Erro interno no servidor.' }); }
+});
+
+// Login exclusivo do motorista — aceita só perfil = 'motorista'. Retorna o
+// mesmo token de role 'operador' (compatível com as rotas já existentes,
+// como POST /coletas/posicao) mas com escopo separado na camada de UI.
+router.post('/motorista', async (req, res) => {
+    try {
+        const { login, senha } = req.body;
+        const [linhas] = await db.query(
+            `SELECT u.*, e.nome as empresa_nome, e.cor1, e.caminho_logo, e.api_mapas,
+                    e.status as empresa_status, e.base_lat, e.base_lng
+               FROM usuarios u
+         INNER JOIN empresas e ON u.empresa_id = e.id
+              WHERE u.login = ?`,
+            [login]
+        );
+        if (linhas.length === 0) return res.status(401).json({ erro: 'Login ou senha inválidos.' });
+
+        const motorista = linhas[0];
+        if (motorista.status !== 'ativo' || motorista.empresa_status !== 'ativo') {
+            return res.status(403).json({ erro: 'Acesso bloqueado.' });
+        }
+        if (String(motorista.perfil || '').toLowerCase() !== 'motorista') {
+            return res.status(403).json({ erro: 'Este acesso é exclusivo para usuários com perfil Motorista.' });
+        }
+
+        const senhaValida = await bcrypt.compare(senha, motorista.senha);
+        if (!senhaValida) return res.status(401).json({ erro: 'Login ou senha inválidos.' });
+
+        delete motorista.senha;
+        const token = signToken({
+            role: 'operador',
+            empresaId: motorista.empresa_id,
+            usuarioId: motorista.id,
+            tipoApp: 'motorista'
+        });
+        res.json({ motorista, token });
+    } catch (erro) {
+        console.error('[login/motorista] erro', erro);
+        res.status(500).json({ erro: 'Erro interno no servidor.' });
+    }
 });
 
 router.post('/emitir-token-empresa', requireAuth, requireMaster, async (req, res) => {

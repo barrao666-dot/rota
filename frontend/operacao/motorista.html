@@ -2,55 +2,99 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Obralight - App do Motorista</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Rota++ Motorista</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#333333">
-    <link rel="stylesheet" href="/css/motorista.css">
+    <!-- Manifest dedicado: permite instalar o "App Motorista" separado
+         do painel Rota++ (cada um com seu próprio id/start_url). -->
+    <link rel="manifest" href="/motorista.manifest.json">
+    <meta name="theme-color" content="#2563eb">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Motorista">
+    <meta name="application-name" content="Motorista">
+    <link rel="apple-touch-icon" href="/icons/icon-192.svg">
+    <link rel="stylesheet" href="/css/motorista.css?v=4">
 </head>
 <body>
 
-    <div class="topbar">
-        <h3 class="header-title">
-            🚚 App Motorista
-            <span id="indicador-nuvem" class="status-badge">🟢 Online</span>
-        </h3>
-        <button id="btn-instalar-app" class="btn-install hidden">Instalar app</button>
+<div id="app">
+
+    <!-- ===== TOP BAR (compartilhado pelas views) ===== -->
+    <div class="topbar" id="topbar">
+        <button class="btn-back" id="btn-back" aria-label="Voltar">←</button>
+        <div style="flex:1; min-width:0;">
+            <div class="topbar-title" id="topbar-title">Rota++ Motorista</div>
+            <span class="topbar-subtitle" id="topbar-subtitle">Selecione uma rota do dia</span>
+        </div>
+        <span class="sync-pill" id="sync-pill">⟳ Sync</span>
     </div>
 
-    <div id="mapa-motorista"></div>
+    <!-- ===== VIEW: HOME ===== -->
+    <section class="view" id="view-home">
+        <div id="map-home"></div>
+        <button class="map-fab recentrar" id="btn-recentrar-home" title="Minha localização">📍</button>
 
-    <div class="controls">
-        <div class="controls-row">
-            <div class="control-col">
-                <label>Data:</label>
-                <input type="date" id="data-operacao">
+        <div class="bottom-sheet" id="bottom-sheet">
+            <div class="sheet-handle" id="sheet-handle"></div>
+            <div class="sheet-header">
+                <h2 class="sheet-title" id="sheet-titulo">Rotas do dia</h2>
+                <p class="sheet-sub" id="sheet-sub">Toque para ver detalhes antes de iniciar.</p>
             </div>
-            <div class="control-col">
-                <label>Turno:</label>
-                <select id="turno">
-                    <option value="manha">Manhã</option>
-                    <option value="tarde">Tarde</option>
-                </select>
+            <div class="sheet-body" id="lista-rotas">
+                <div class="empty-state">Carregando rotas do dia...</div>
             </div>
         </div>
-        <button id="btn-rota-completa" class="btn-rota-completa">📍 Abrir Rota Inteira no GPS</button>
-    </div>
+    </section>
 
-    <div id="status-sync" class="status-sync">Atualizando sistema...</div>
+    <!-- ===== VIEW: ROUTE DETAIL ===== -->
+    <section class="view hidden" id="view-detail">
+        <div class="detail-summary">
+            <h2 id="detail-titulo">Detalhes da rota</h2>
+            <p id="detail-sub">—</p>
+        </div>
+        <div class="detail-body" id="detail-paradas"></div>
+        <div class="sticky-footer">
+            <button class="btn-primary-xl" id="btn-iniciar-rota">🚗 Iniciar Rota</button>
+        </div>
+    </section>
 
-    <div id="lista-entregas"></div>
+    <!-- ===== VIEW: ACTIVE TRIP ===== -->
+    <section class="view hidden" id="view-active">
+        <div id="active-banner" class="active-banner">
+            ⚠️ Mantenha o app aberto e a tela ligada para o GPS seguir funcionando.
+        </div>
+        <div id="map-active"></div>
+        <button class="map-fab recentrar" id="btn-recentrar-active" title="Minha localização">📍</button>
 
-    <div id="loading" class="overlay-loading">
-        <div class="spinner"></div>
-        <span id="loading-text">Sincronizando...</span>
-    </div>
+        <div class="active-sheet">
+            <div class="sheet-handle"></div>
+            <div class="sheet-header">
+                <h2 class="sheet-title" id="active-titulo">Viagem em andamento</h2>
+                <p class="sheet-sub" id="active-sub">Siga o passo-a-passo de cada parada.</p>
+            </div>
+            <div class="sheet-body" id="lista-paradas-ativas"></div>
+        </div>
+    </section>
+</div>
 
+<div id="loading-overlay">
+    <div class="spin"></div>
+    <div id="loading-text">Atualizando servidor...</div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Leaflet -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Cliente de API (token + apiFetchJson) -->
 <script src="/js/api-client.js"></script>
-<script src="/js/motorista.js"></script>
+<!-- App do motorista (router + GPS + WakeLock) -->
+<script src="/js/motorista.js?v=4"></script>
+<!-- Bootstrap PWA (registra SW, injeta tags ausentes). NÃO sobrescreve
+     o <link rel="manifest"> já declarado (próprio do motorista). -->
 <script src="/js/pwa-bootstrap.js?v=1" defer></script>
 <script src="/js/footer-rfs.js?v=1" defer></script>
+
 </body>
 </html>

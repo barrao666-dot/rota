@@ -145,6 +145,78 @@ function montarUpdateRoteamento(payload) {
     return { setParts, values };
 }
 
+// ===== Rastreamento em tempo real do motorista =====
+// Motorista envia sua posição periodicamente (a cada 15s na viagem ativa).
+// Fazemos UPSERT por (empresa_id, usuario_id), mantendo uma linha só por
+// motorista. Rota anterior à `/:id/...`, pois `/posicao` colidiria com o
+// parâmetro dinâmico.
+router.post('/posicao', requireAuth, async (req, res) => {
+    try {
+        const usuarioId = Number(req.auth && req.auth.usuarioId);
+        const empresaId = Number(req.auth && req.auth.empresaId);
+        if (!usuarioId || !empresaId) {
+            return res.status(403).json({ erro: 'Apenas operadores vinculados a uma empresa podem enviar posição.' });
+        }
+        const lat = parseFloat(req.body.lat);
+        const lng = parseFloat(req.body.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            return res.status(400).json({ erro: 'Coordenadas inválidas.' });
+        }
+        const velocidade = req.body.velocidade != null && Number.isFinite(Number(req.body.velocidade))
+            ? Math.max(0, Number(req.body.velocidade))
+            : null;
+        const precisao = req.body.precisao != null && Number.isFinite(Number(req.body.precisao))
+            ? Math.max(0, Number(req.body.precisao))
+            : null;
+
+        await db.query(
+            `INSERT INTO motoristas_posicao (empresa_id, usuario_id, lat, lng, velocidade, precisao, atualizado_em)
+             VALUES (?, ?, ?, ?, ?, ?, NOW())
+             ON DUPLICATE KEY UPDATE
+                lat = VALUES(lat),
+                lng = VALUES(lng),
+                velocidade = VALUES(velocidade),
+                precisao = VALUES(precisao),
+                atualizado_em = NOW()`,
+            [empresaId, usuarioId, lat, lng, velocidade, precisao]
+        );
+        res.json({ ok: true });
+    } catch (erro) {
+        console.warn('[coletas] POST /posicao falhou', erro && erro.message);
+        res.status(500).json({ erro: 'Falha ao gravar posição.' });
+    }
+});
+
+// Painel de rotas lê posições dos motoristas da empresa corrente.
+// Retorna só os "frescos" (últimos 10 minutos) pra não poluir o mapa com
+// dispositivos desligados há horas.
+router.get('/posicao/motoristas', requireAuth, async (req, res) => {
+    try {
+        let empresaId;
+        if (req.auth.role === 'master') {
+            empresaId = Number(req.query.empresa_id) || null;
+            if (!empresaId) return res.json([]);
+        } else {
+            empresaId = Number(req.auth.empresaId);
+            if (!empresaId) return res.json([]);
+        }
+        const [rows] = await db.query(
+            `SELECT mp.usuario_id, u.nome, u.login, mp.lat, mp.lng,
+                    mp.velocidade, mp.precisao, mp.atualizado_em
+               FROM motoristas_posicao mp
+          LEFT JOIN usuarios u ON u.id = mp.usuario_id
+              WHERE mp.empresa_id = ?
+                AND mp.atualizado_em > DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+              ORDER BY mp.atualizado_em DESC`,
+            [empresaId]
+        );
+        res.json(rows);
+    } catch (erro) {
+        console.warn('[coletas] GET /posicao/motoristas falhou', erro && erro.message);
+        res.status(500).json({ erro: 'Falha ao ler posições.' });
+    }
+});
+
 router.patch('/:id/status', requireAuth, async (req, res) => {
     try {
         const id = parseIdOr400(req, res);

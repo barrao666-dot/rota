@@ -65,3 +65,36 @@ input, select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px sol
     .btn-close-modal, .btn-print-modal, .btn-gmaps { display: none !important; }
     .nao-imprimir { display: none !important; }
 }
+
+/* Pino "ao vivo" dos motoristas no mapa do painel de rotas */
+.motorista-live-pin {
+    position: relative;
+    width: 36px;
+    height: 36px;
+}
+.motorista-live-pin .pulse {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: rgba(37, 99, 235, 0.35);
+    animation: motorista-pulse 1.6s ease-out infinite;
+    pointer-events: none;
+}
+.motorista-live-pin .dot {
+    position: absolute;
+    inset: 6px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: #fff;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.55), 0 0 0 3px #fff;
+    font-weight: 700;
+}
+@keyframes motorista-pulse {
+    0%   { transform: scale(0.7); opacity: 0.75; }
+    80%  { transform: scale(1.8); opacity: 0; }
+    100% { transform: scale(1.8); opacity: 0; }
+}

@@ -62,7 +62,11 @@ const ASSETS_SEM_CACHE = new Set([
     // (ícones, shortcuts, theme_color) apareçam no próximo load
     // sem obrigar o usuário a reinstalar o app.
     '/manifest.json',
-    '/js/pwa-bootstrap.js'
+    '/motorista.manifest.json',
+    '/js/pwa-bootstrap.js',
+    '/js/motorista.js',
+    '/operacao/motorista.html',
+    '/operacao/login.html'
 ]);
 app.use(express.static(frontendPath, {
     // Desliga o Cache-Control default do send() para que o setHeaders abaixo

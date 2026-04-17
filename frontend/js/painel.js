@@ -368,7 +368,7 @@ function mudarAba(abaDestino) {
                 <div class="grid-2">
                     <div class="input-group">
                         <label>Perfil</label>
-                        <select id="usu-perfil"><option value="operador">Operador (Monta Rotas)</option><option value="admin">Administrador</option></select>
+                        <select id="usu-perfil"><option value="operador">Operador (Monta Rotas)</option><option value="motorista">Motorista (App de Campo)</option><option value="admin">Administrador</option></select>
                     </div>
                     <div class="input-group" id="div-usu-status" style="display: none;">
                         <label>Status</label>

@@ -711,6 +711,91 @@ try {
 } catch(err) { }
 let marcadorBaseRotas = null;
 
+// ===== Rastreamento em tempo real dos motoristas no mapa do painel =====
+// Polling de /api/coletas/posicao/motoristas a cada 10s. Cada motorista vira
+// um pino azul pulsante no mapa, com popup mostrando nome, velocidade e
+// "há X min atrás". Registros com mais de 10min no backend já são filtrados,
+// mas escondemos também aqui se o usuário desmarcar a opção.
+const marcadoresMotoristas = new Map();
+let timerPosicoesMotoristas = null;
+let rastreamentoAtivo = true;
+
+function tempoAtrasFmt(iso) {
+    if (!iso) return '-';
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return '-';
+    const difSeg = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (difSeg < 60) return `há ${difSeg}s`;
+    const min = Math.round(difSeg / 60);
+    if (min < 60) return `há ${min} min`;
+    const hr = Math.round(min / 60);
+    return `há ${hr} h`;
+}
+
+async function atualizarMarcadoresMotoristas() {
+    if (!rastreamentoAtivo || !map) return;
+    let lista;
+    try {
+        lista = await apiFetchJson('/api/coletas/posicao/motoristas');
+    } catch (err) {
+        console.warn('[rotas] falha ao buscar posições de motoristas', err && err.message);
+        return;
+    }
+    if (!Array.isArray(lista)) return;
+
+    const vistos = new Set();
+    lista.forEach((m) => {
+        const uid = Number(m.usuario_id);
+        const lat = parseFloat(m.lat);
+        const lng = parseFloat(m.lng);
+        if (!uid || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        vistos.add(uid);
+
+        const nome = m.nome || m.login || `Motorista #${uid}`;
+        const vel = m.velocidade != null ? `${(Number(m.velocidade) * 3.6).toFixed(1)} km/h` : '-';
+        const qtd = `Precisão: ${m.precisao != null ? Math.round(Number(m.precisao)) + ' m' : '-'}`;
+        const atrás = tempoAtrasFmt(m.atualizado_em);
+        const popupHtml = `
+            <div style="min-width:180px">
+                <strong style="font-size:14px">🚚 ${nome}</strong><br>
+                <span style="color:#475569;font-size:12px">Velocidade: ${vel}</span><br>
+                <span style="color:#475569;font-size:12px">${qtd}</span><br>
+                <span style="color:#64748b;font-size:11px">Atualizado ${atrás}</span>
+            </div>`;
+
+        if (marcadoresMotoristas.has(uid)) {
+            const mk = marcadoresMotoristas.get(uid);
+            mk.setLatLng([lat, lng]);
+            if (mk.getPopup()) mk.getPopup().setContent(popupHtml);
+        } else {
+            const icon = L.divIcon({
+                className: 'motorista-live-pin',
+                html: '<div class="pulse"></div><div class="dot">🚚</div>',
+                iconSize: [36, 36],
+                iconAnchor: [18, 18]
+            });
+            const mk = L.marker([lat, lng], { icon, zIndexOffset: 1000 })
+                .addTo(map)
+                .bindPopup(popupHtml);
+            marcadoresMotoristas.set(uid, mk);
+        }
+    });
+
+    // Remove pinos de motoristas que sumiram (sem posição recente)
+    for (const [uid, mk] of marcadoresMotoristas.entries()) {
+        if (!vistos.has(uid)) {
+            try { map.removeLayer(mk); } catch (_) {}
+            marcadoresMotoristas.delete(uid);
+        }
+    }
+}
+
+function iniciarRastreamentoMotoristas() {
+    if (timerPosicoesMotoristas) return;
+    atualizarMarcadoresMotoristas();
+    timerPosicoesMotoristas = setInterval(atualizarMarcadoresMotoristas, 10000);
+}
+
 async function sincronizarEmpresaAtual() {
     try {
         const data = await apiFetchJson('/api/empresas/me');
@@ -752,6 +837,7 @@ window.onload = async () => {
         await carregarConfiguracoesDaEmpresa();
         aplicarRegraHorario();
         await carregarDados();
+        iniciarRastreamentoMotoristas();
 
         // Mantém o dropdown de "Vincular a entrega" em sincronia com a data do formulário
         const inputDataEnt = document.getElementById('data-entrega');
@@ -1209,6 +1295,9 @@ async function carregarDados(opts = {}) {
             tempoViagemReal: e.tempo_viagem_real,
             tempoNoLocalReal: e.tempo_no_local_real,
             horaPrevista: e.hora_prevista || null,
+            horaPartida: e.hora_partida || null,
+            horaChegada: e.hora_chegada || null,
+            horaConclusao: e.hora_conclusao || null,
             specs: { peso: e.peso || 0, a: e.altura || 0, l: e.largura || 0, c: e.comprimento || 0, tempoServico: e.tempo_medio || 600 },
             // Quando preenchido, indica que este registro é uma COLETA atrelada
             // à entrega cujo id = coletaVinculadaId (pickup → delivery).
@@ -1821,14 +1910,33 @@ function renderizarListaSimples(opts = {}) {
     const bounds = new L.LatLngBounds();
     pacotes.forEach(e => {
         const isConcluida = e.status === 'concluida'; const isColeta = e.tamanho === 'Coleta';
-        let corBorda = e.corIcone || '#64748b'; if (isConcluida) corBorda = '#16a34a'; if (isColeta && !isConcluida) corBorda = '#0284c7';
-        
-        let pinClass = isColeta ? 'custom-pin coleta-pin' : 'custom-pin'; 
+        const isTransito = e.status === 'em_transito';
+        const isNoLocal = e.status === 'em_atendimento';
+        // Cor do pino/borda segue um ciclo visual: cinza (pendente) →
+        // azul (coleta) → azul-forte (em trânsito) → laranja (no local)
+        // → verde (concluído). Dá pra ler o andamento só de olhar no mapa.
+        let corBorda = e.corIcone || '#64748b';
+        if (isColeta && !isConcluida && !isTransito && !isNoLocal) corBorda = '#0284c7';
+        if (isTransito) corBorda = '#2563eb';
+        if (isNoLocal) corBorda = '#d97706';
+        if (isConcluida) corBorda = '#16a34a';
 
-        // PLOTA TANTO ENTREGAS QUANTO COLETAS NO MAPA
-        if(!isConcluida && e.coords && e.coords.length >= 2 && !isNaN(e.coords[0]) && !isNaN(e.coords[1])) {
-            const marker = L.marker([e.coords[1], e.coords[0]], { icon: L.divIcon({ className: pinClass, html: `<div style="background:${corBorda};">${e.ordem ? e.ordem : '📍'}</div>`, iconSize:[26,26] }) }).addTo(map);
-            marker.bindPopup(`<b>${e.ordem ? e.ordem + 'º Parada' : 'Agendado'}</b><br>${e.nomeCliente}<br>${e.endereco}`); layersPinos.push(marker); bounds.extend([e.coords[1], e.coords[0]]);
+        let pinClass = isColeta ? 'custom-pin coleta-pin' : 'custom-pin';
+        if (isTransito) pinClass += ' pin-em-transito';
+        if (isNoLocal) pinClass += ' pin-no-local';
+
+        // Status em andamento também aparecem no mapa (não só concluídos)
+        // para o despachante acompanhar o motorista em tempo real.
+        if (e.coords && e.coords.length >= 2 && !isNaN(e.coords[0]) && !isNaN(e.coords[1])) {
+            const mostraNoMapa = !isConcluida || isColeta === false; // concluídas da entrega some
+            if (mostraNoMapa && !isConcluida) {
+                const conteudo = isTransito ? '🚗' : (isNoLocal ? '📍' : (e.ordem || '📍'));
+                const marker = L.marker([e.coords[1], e.coords[0]], { icon: L.divIcon({ className: pinClass, html: `<div style="background:${corBorda};">${conteudo}</div>`, iconSize: [26, 26] }) }).addTo(map);
+                const labelStatus = isTransito ? '🚗 Em trânsito' : (isNoLocal ? '📍 No local' : 'Agendado');
+                marker.bindPopup(`<b>${e.ordem ? e.ordem + 'º Parada' : 'Agendado'}</b><br>${e.nomeCliente}<br>${e.endereco}<br><small>${labelStatus}</small>`);
+                layersPinos.push(marker);
+                bounds.extend([e.coords[1], e.coords[0]]);
+            }
         }
 
         let botoes = isConcluida ? `<button class="btn-small" onclick="desfazerConcluida(${e.id})">↩️ Desfazer</button>` : `<button class="btn-small" style="color:#16a34a;" onclick="marcarConcluida(${e.id})">✔️ Concluir</button>${isColeta?'':`<button class="btn-small" onclick="editarEntrega(${e.id})">✏️ Editar</button>`}<button class="btn-small delete" style="color:red;" onclick="removerEntrega(${e.id})">🗑️ Excluir</button>`;
@@ -1865,9 +1973,22 @@ function renderizarListaSimples(opts = {}) {
             ? `<span style="margin-left:8px; font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px; background:#f0f9ff; color:#0369a1; border:1px solid #bae6fd;">🕐 ETA ${e.horaPrevista}</span>`
             : '';
 
+        // Badge de status da parada — mostrar só se já saiu de pendente
+        let badgeStatus = '';
+        if (isTransito) {
+            const h = e.horaPartida ? ` · partiu ${e.horaPartida}` : '';
+            badgeStatus = `<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:800;">🚗 EM TRÂNSITO${h}</span>`;
+        } else if (isNoLocal) {
+            const h = e.horaChegada ? ` · chegou ${e.horaChegada}` : '';
+            badgeStatus = `<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#fef3c7;color:#b45309;font-size:10px;font-weight:800;">📍 NO LOCAL${h}</span>`;
+        } else if (isConcluida) {
+            const h = e.horaConclusao ? ` · ${e.horaConclusao}` : '';
+            badgeStatus = `<span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:#dcfce7;color:#15803d;font-size:10px;font-weight:800;">✔️ CONCLUÍDO${h}</span>`;
+        }
+
         container.innerHTML += `<div class="card ${isConcluida ? 'concluida' : ''}" style="border-left-color: ${corBorda}; ${isColeta ? 'background:#f0f9ff;' : ''}">
             ${(e.ordem && !isConcluida) ? `<div class="badge-ordem" style="background: ${e.corIcone}">${e.ordem}º</div>` : ''}
-            <strong style="font-size: 13px;">${e.nomeCliente}</strong><br><span style="font-size: 11px; color:#64748b;">${e.endereco}</span>${atribTxt}
+            <strong style="font-size: 13px;">${e.nomeCliente}</strong>${badgeStatus}<br><span style="font-size: 11px; color:#64748b;">${e.endereco}</span>${atribTxt}
             <div style="margin-top:4px;"><span style="font-size: 11px; color: ${corBorda}; font-weight: bold;">📅 ${formatarData(e.dataEntrega)} | Turno: ${e.periodo==='manha'?'Manhã':'Tarde'} ${isColeta?'| [INSTRUÇÃO DE COLETA]':''}</span>${etaTxt}</div>
             ${vinculoTxt}
             <table class="specs-table">
@@ -2348,7 +2469,21 @@ function renderizarConteudoRelatorio() {
 
             pacotes.forEach(p => {
                 let ordemCell = p.ordem ? `<span style="font-size: 14px; font-weight: 900; color: ${cores[turno]};">${p.ordem}º Parada</span>` : 'Pendente';
-                let statusTxt = p.status === 'concluida' ? '<span style="color:#15803d; font-weight:bold;">✔️ CONCLUÍDO</span>' : '<span style="color:#d97706; font-weight:bold;">Aguardando</span>';
+                // Status refletindo o ciclo completo do motorista:
+                // pendente → em_transito (partir) → em_atendimento (cheguei) → concluida
+                let statusTxt;
+                if (p.status === 'concluida') {
+                    const h = p.horaConclusao ? `<br><small style="color:#15803d;">${p.horaConclusao}</small>` : '';
+                    statusTxt = `<span style="color:#15803d; font-weight:bold;">✔️ CONCLUÍDO</span>${h}`;
+                } else if (p.status === 'em_atendimento') {
+                    const h = p.horaChegada ? `<br><small style="color:#b45309;">desde ${p.horaChegada}</small>` : '';
+                    statusTxt = `<span style="color:#d97706; font-weight:bold;">📍 NO LOCAL</span>${h}`;
+                } else if (p.status === 'em_transito') {
+                    const h = p.horaPartida ? `<br><small style="color:#1d4ed8;">desde ${p.horaPartida}</small>` : '';
+                    statusTxt = `<span style="color:#2563eb; font-weight:bold;">🚗 EM TRÂNSITO</span>${h}`;
+                } else {
+                    statusTxt = '<span style="color:#94a3b8; font-weight:bold;">⏳ AGUARDANDO</span>';
+                }
                 
                 let prevViagem = parseInt(p.tempoViagem) || 0; let prevObra = p.specs?.tempoServico ? Math.round(p.specs.tempoServico/60) : 10;
                 let tempoPrevisto = `Viagem: ${prevViagem}m<br>Local: ${prevObra}m`;
