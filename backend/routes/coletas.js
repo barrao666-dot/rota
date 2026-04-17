@@ -152,11 +152,13 @@ function montarUpdateRoteamento(payload) {
 // parâmetro dinâmico.
 router.post('/posicao', requireAuth, async (req, res) => {
     try {
-        const usuarioId = Number(req.auth && req.auth.usuarioId);
+        // Aceita motoristaId (fluxo novo via tabela motoristas) ou
+        // usuarioId (fluxo legado de operador com perfil motorista).
+        const motoristaId = Number(req.auth && (req.auth.motoristaId || req.auth.usuarioId));
         const empresaId = Number(req.auth && req.auth.empresaId);
-        if (!usuarioId || !empresaId) {
-            console.warn('[posicao] 403 - role sem usuario/empresa', { auth: req.auth });
-            return res.status(403).json({ erro: 'Apenas operadores vinculados a uma empresa podem enviar posição.' });
+        if (!motoristaId || !empresaId) {
+            console.warn('[posicao] 403 - role sem motorista/empresa', { auth: req.auth });
+            return res.status(403).json({ erro: 'Apenas motoristas autenticados podem enviar posição.' });
         }
         const lat = parseFloat(req.body.lat);
         const lng = parseFloat(req.body.lng);
@@ -164,7 +166,7 @@ router.post('/posicao', requireAuth, async (req, res) => {
             console.warn('[posicao] 400 - coordenadas invalidas', { body: req.body });
             return res.status(400).json({ erro: 'Coordenadas inválidas.' });
         }
-        console.log(`[posicao] OK emp=${empresaId} usr=${usuarioId} lat=${lat} lng=${lng}`);
+        console.log(`[posicao] OK emp=${empresaId} motorista=${motoristaId} lat=${lat} lng=${lng}`);
         const velocidade = req.body.velocidade != null && Number.isFinite(Number(req.body.velocidade))
             ? Math.max(0, Number(req.body.velocidade))
             : null;
@@ -181,7 +183,7 @@ router.post('/posicao', requireAuth, async (req, res) => {
                 velocidade = VALUES(velocidade),
                 precisao = VALUES(precisao),
                 atualizado_em = NOW()`,
-            [empresaId, usuarioId, lat, lng, velocidade, precisao]
+            [empresaId, motoristaId, lat, lng, velocidade, precisao]
         );
         res.json({ ok: true });
     } catch (erro) {
@@ -203,11 +205,19 @@ router.get('/posicao/motoristas', requireAuth, async (req, res) => {
             empresaId = Number(req.auth.empresaId);
             if (!empresaId) return res.json([]);
         }
+        // A coluna `usuario_id` em motoristas_posicao guarda hoje o id do
+        // motorista (tabela `motoristas`). Fazemos JOIN com `motoristas`
+        // primeiro; como fallback (rows legadas), tentamos `usuarios`.
         const [rows] = await db.query(
-            `SELECT mp.usuario_id, u.nome, u.login, mp.lat, mp.lng,
+            `SELECT mp.usuario_id,
+                    mp.usuario_id AS motorista_id,
+                    COALESCE(m.nome, u.nome)   AS nome,
+                    COALESCE(m.login, u.login) AS login,
+                    mp.lat, mp.lng,
                     mp.velocidade, mp.precisao, mp.atualizado_em
                FROM motoristas_posicao mp
-          LEFT JOIN usuarios u ON u.id = mp.usuario_id
+          LEFT JOIN motoristas m ON m.id = mp.usuario_id AND m.empresa_id = mp.empresa_id
+          LEFT JOIN usuarios u   ON u.id = mp.usuario_id AND u.empresa_id = mp.empresa_id
               WHERE mp.empresa_id = ?
                 AND mp.atualizado_em > DATE_SUB(NOW(), INTERVAL 10 MINUTE)
               ORDER BY mp.atualizado_em DESC`,

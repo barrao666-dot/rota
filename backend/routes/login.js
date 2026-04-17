@@ -55,43 +55,45 @@ router.post('/operador', async (req, res) => {
     } catch (erro) { res.status(500).json({ erro: 'Erro interno no servidor.' }); }
 });
 
-// Login exclusivo do motorista — aceita só perfil = 'motorista'. Retorna o
-// mesmo token de role 'operador' (compatível com as rotas já existentes,
-// como POST /coletas/posicao) mas com escopo separado na camada de UI.
+// Login exclusivo do motorista — autentica contra a tabela `motoristas`
+// (cadastro feito no painel gerencial em "Motoristas"). Retorna token
+// com role 'operador' pra reaproveitar middleware existente, mas com
+// tipoApp='motorista' e motoristaId (não usuarioId) na payload.
 router.post('/motorista', async (req, res) => {
     try {
         const { login, senha } = req.body;
-        // Base coords vêm da tabela `bases` (empresas não guarda lat/lng).
-        // Usa a base mais antiga da empresa como default do app motorista;
-        // se não houver base cadastrada, base_lat/base_lng retornam NULL.
+        // Base coords vêm da tabela `bases` via subquery (uma base por empresa
+        // normalmente, pegamos a mais antiga como default).
         const [linhas] = await db.query(
-            `SELECT u.*, e.nome as empresa_nome, e.cor1, e.caminho_logo, e.api_mapas,
+            `SELECT m.*, e.nome as empresa_nome, e.cor1, e.caminho_logo, e.api_mapas,
                     e.status as empresa_status,
                     (SELECT b.lat FROM bases b WHERE b.empresa_id = e.id ORDER BY b.id ASC LIMIT 1) AS base_lat,
                     (SELECT b.lng FROM bases b WHERE b.empresa_id = e.id ORDER BY b.id ASC LIMIT 1) AS base_lng
-               FROM usuarios u
-         INNER JOIN empresas e ON u.empresa_id = e.id
-              WHERE u.login = ?`,
+               FROM motoristas m
+         INNER JOIN empresas e ON m.empresa_id = e.id
+              WHERE m.login = ?`,
             [login]
         );
         if (linhas.length === 0) return res.status(401).json({ erro: 'Login ou senha inválidos.' });
 
         const motorista = linhas[0];
-        if (motorista.status !== 'ativo' || motorista.empresa_status !== 'ativo') {
-            return res.status(403).json({ erro: 'Acesso bloqueado.' });
-        }
-        if (String(motorista.perfil || '').toLowerCase() !== 'motorista') {
-            return res.status(403).json({ erro: 'Este acesso é exclusivo para usuários com perfil Motorista.' });
+        if (motorista.empresa_status !== 'ativo') {
+            return res.status(403).json({ erro: 'Empresa bloqueada.' });
         }
 
         const senhaValida = await bcrypt.compare(senha, motorista.senha);
         if (!senhaValida) return res.status(401).json({ erro: 'Login ou senha inválidos.' });
 
         delete motorista.senha;
+        // Campos "virtuais" pra compatibilidade com o front que espera
+        // o mesmo shape do /api/login/operador.
+        motorista.perfil = 'motorista';
+        motorista.status = 'ativo';
+
         const token = signToken({
             role: 'operador',
             empresaId: motorista.empresa_id,
-            usuarioId: motorista.id,
+            motoristaId: motorista.id,
             tipoApp: 'motorista'
         });
         res.json({ motorista, token });
