@@ -11,13 +11,18 @@ assertJwtConfigured();
 aplicarMigracoes().catch((e) => console.warn('[Rota++] migração falhou:', e.message));
 
 const app = express();
+// Atrás de reverse proxy (TurboCloud/NGINX). Permite que `req.protocol` e
+// `req.ip` sejam os reais do cliente, além de fazer os cookies "secure"
+// funcionarem sob HTTPS terminado no proxy.
+app.set('trust proxy', 1);
 
-const allowedOrigins = (
-    process.env.FRONTEND_ORIGIN ||
-    'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173'
-)
+// Em produção, FRONTEND_ORIGIN deve listar explicitamente o domínio público
+// (ex: https://rotaplus.meusite.com). Em dev, caímos pra localhost/vite.
+const defaultOrigins = 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173';
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || defaultOrigins)
     .split(',')
-    .map((s) => s.trim());
+    .map((s) => s.trim())
+    .filter(Boolean);
 app.use(
     cors({
         origin(origin, cb) {
@@ -115,7 +120,12 @@ app.use((req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor Rota++ rodando em http://localhost:${PORT}`);
+// Host/porta vêm do ambiente. TurboCloud injeta `PORT` no container e espera
+// que a app escute em todas as interfaces (0.0.0.0). Em dev, deixamos como
+// 3000 e localhost pra manter o fluxo atual.
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+const publicUrl = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
+app.listen(PORT, HOST, () => {
+    console.log(`🚀 Servidor Rota++ rodando em ${publicUrl} (bind ${HOST}:${PORT})`);
 });

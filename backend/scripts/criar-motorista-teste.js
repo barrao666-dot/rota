@@ -65,7 +65,8 @@ async function criar(empresaId, login, senha, nome) {
     console.log(`OK: motorista "${login}" criado na empresa "${emp[0].nome}" (id ${empresaId}).`);
     console.log(`   Login: ${login}`);
     console.log(`   Senha: ${senha}`);
-    console.log(`   URL:   http://localhost:3000/operacao/login.html`);
+    const baseUrl = (process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 3000}`).replace(/\/$/, '');
+    console.log(`   URL:   ${baseUrl}/operacao/login.html`);
 }
 
 (async () => {

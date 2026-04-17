@@ -1,0 +1,43 @@
+# === Dependências (cada ambiente instala pelo package-lock) ===
+node_modules/
+
+# === Arquivos de ambiente / segredos ===
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/env.example
+
+# === Uploads em runtime (cada ambiente tem o seu) ===
+backend/uploads/
+
+# === Build do React (gerado por `npm run build`) ===
+# O TurboCloud roda `npm run build` no deploy, então dist-ui não precisa ir
+# no repositório. Se preferir versionar, comente a linha abaixo.
+dist-ui/
+
+# === Logs ===
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# === Coverage / testes ===
+coverage/
+.nyc_output/
+
+# === Editores / OS ===
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === Cache de ferramentas ===
+.cache/
+.parcel-cache/
+.eslintcache
+.turbo/
