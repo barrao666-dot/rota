@@ -1,5 +1,15 @@
 const db = require('../db');
 
+function msgMysql(erro) {
+    if (!erro) return '(erro desconhecido)';
+    return erro.sqlMessage || erro.message || String(erro);
+}
+
+function logFalhaMigracao(rotulo, erro) {
+    const extra = erro && (erro.code || erro.errno) ? ` [${erro.code || erro.errno}]` : '';
+    console.warn(`[Rota++] ${rotulo}:`, msgMysql(erro) + extra);
+}
+
 // Migrações idempotentes executadas no boot. Mantém o schema compatível com o
 // código atual sem exigir migrations externas.
 async function aplicarMigracoes() {
@@ -43,7 +53,7 @@ async function garantirTabelaMotoristasPosicao() {
         );
         console.log('[Rota++] migração: tabela motoristas_posicao criada.');
     } catch (erro) {
-        console.warn('[Rota++] falha ao criar motoristas_posicao:', erro && erro.message);
+        logFalhaMigracao('falha ao criar motoristas_posicao', erro);
     }
 }
 
@@ -57,7 +67,7 @@ async function garantirColunaHoraPrevista() {
         await db.query('ALTER TABLE coletas ADD COLUMN hora_prevista VARCHAR(5) NULL');
         console.log('[Rota++] migração: coluna coletas.hora_prevista criada.');
     } catch (erro) {
-        console.warn('[Rota++] falha ao aplicar migração hora_prevista:', erro.message);
+        logFalhaMigracao('falha ao aplicar migração hora_prevista', erro);
     }
 }
 
@@ -94,7 +104,7 @@ async function garantirColunaColetaVinculada() {
         );
         console.log('[Rota++] migração: coluna coletas.coleta_vinculada_id criada.');
     } catch (erro) {
-        console.warn('[Rota++] falha ao aplicar migração coleta_vinculada_id:', erro.message);
+        logFalhaMigracao('falha ao aplicar migração coleta_vinculada_id', erro);
     }
 }
 
@@ -126,7 +136,7 @@ async function garantirUniqueEmpresasDocumento() {
             throw erro;
         }
     } catch (erro) {
-        console.warn('[Rota++] falha ao aplicar UNIQUE empresas.documento:', erro && erro.message);
+        logFalhaMigracao('falha ao aplicar UNIQUE empresas.documento', erro);
     }
 }
 
