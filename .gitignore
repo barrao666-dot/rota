@@ -12,10 +12,13 @@ backend/.env.*
 # === Uploads em runtime (cada ambiente tem o seu) ===
 backend/uploads/
 
-# === Build do React (gerado por `npm run build`) ===
-# O TurboCloud roda `npm run build` no deploy, então dist-ui não precisa ir
-# no repositório. Se preferir versionar, comente a linha abaixo.
-dist-ui/
+# === Build do React ===
+# Versionamos `dist-ui/` porque o cPanel/TurboCloud (Node Selector via
+# Passenger) não roda build automático no deploy. Rode `npm run build`
+# localmente antes de cada push pra manter o bundle atualizado no repo.
+# (Se mudar pra um host que roda build no servidor, basta descomentar
+#  a linha abaixo.)
+# dist-ui/
 
 # === Logs ===
 npm-debug.log*

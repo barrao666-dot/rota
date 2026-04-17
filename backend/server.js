@@ -120,12 +120,17 @@ app.use((req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// Host/porta vêm do ambiente. TurboCloud injeta `PORT` no container e espera
-// que a app escute em todas as interfaces (0.0.0.0). Em dev, deixamos como
-// 3000 e localhost pra manter o fluxo atual.
-const PORT = Number(process.env.PORT) || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
-const publicUrl = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
-app.listen(PORT, HOST, () => {
-    console.log(`🚀 Servidor Rota++ rodando em ${publicUrl} (bind ${HOST}:${PORT})`);
+// Host/porta vêm do ambiente.
+//  - TurboCloud "container": PORT é numérico → escutamos em HOST:PORT.
+//  - cPanel/Passenger: PORT pode vir como caminho de socket UNIX
+//    (ex.: /tmp/passenger.XXX/socket). Nesse caso precisamos chamar
+//    app.listen(socketPath) sem passar HOST.
+const rawPort = process.env.PORT;
+const isNumericPort = rawPort && /^\d+$/.test(String(rawPort));
+const PORT = isNumericPort ? Number(rawPort) : (rawPort || 3000);
+const HOST = process.env.HOST || (isNumericPort || !rawPort ? '0.0.0.0' : null);
+const publicUrl = (process.env.PUBLIC_URL || `http://localhost:${isNumericPort ? PORT : 3000}`).replace(/\/$/, '');
+const listenArgs = HOST ? [PORT, HOST] : [PORT];
+app.listen(...listenArgs, () => {
+    console.log(`🚀 Servidor Rota++ rodando em ${publicUrl} (bind ${HOST || 'socket'}:${PORT})`);
 });

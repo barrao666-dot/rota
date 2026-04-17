@@ -1,0 +1,28 @@
+---
+deployment:
+  tasks:
+    # Raiz da aplicação dentro do home do cPanel. A tela "Aplicativos Node.js"
+    # deve apontar exatamente pra essa mesma pasta no campo "Raiz do aplicativo".
+    - export DEPLOYPATH=$HOME/rota
+
+    # Garante que a pasta existe (só faz algo na primeira vez).
+    - /bin/mkdir -p $DEPLOYPATH
+
+    # Copia o código versionado do clone do Git para a pasta de runtime
+    # da aplicação. Mantemos frontend/dist-ui/backend intactos (não usa
+    # --delete pra não remover uploads de runtime dentro de backend/uploads).
+    - /bin/cp -R backend        $DEPLOYPATH/
+    - /bin/cp -R frontend       $DEPLOYPATH/
+    - /bin/cp -R dist-ui        $DEPLOYPATH/
+    - /bin/cp -R src            $DEPLOYPATH/ 2>/dev/null || true
+    - /bin/cp  package.json      $DEPLOYPATH/
+    - /bin/cp  package-lock.json $DEPLOYPATH/
+    - /bin/cp  vite.config.js    $DEPLOYPATH/ 2>/dev/null || true
+
+    # Instala dependências respeitando o package-lock. O --omit=dev mantém
+    # o bundle da app leve (dependências de build só existem no seu PC).
+    - cd $DEPLOYPATH && /usr/local/bin/npm ci --omit=dev || /usr/local/bin/npm install --omit=dev
+
+    # Pede ao Passenger pra reiniciar a app no próximo request. Essa é a
+    # forma canônica de "restart" sem precisar clicar no painel.
+    - /bin/mkdir -p $DEPLOYPATH/tmp && /usr/bin/touch $DEPLOYPATH/tmp/restart.txt
