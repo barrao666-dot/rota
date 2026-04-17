@@ -14,7 +14,7 @@ deployment:
     - /bin/cp -R backend        $DEPLOYPATH/
     - /bin/cp -R frontend       $DEPLOYPATH/
     - /bin/cp -R dist-ui        $DEPLOYPATH/
-    - /bin/cp -R src            $DEPLOYPATH/ 2>/dev/null || true
+    - /bin/cp -R ui             $DEPLOYPATH/ 2>/dev/null || true
     - /bin/cp  package.json      $DEPLOYPATH/
     - /bin/cp  package-lock.json $DEPLOYPATH/
     - /bin/cp  vite.config.js    $DEPLOYPATH/ 2>/dev/null || true
