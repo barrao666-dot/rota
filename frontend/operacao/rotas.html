@@ -139,20 +139,14 @@
             </div>
         </div>
         <h4 style="margin: 20px 0 10px; color: var(--primary); font-size: 14px;">Controle de Rotas</h4>
+        <div id="wrap-select-base-operacao" class="filter-box" style="display:none;margin-bottom:8px;">
+            <label style="margin:0;color:var(--primary);font-weight:bold;font-size:12px;white-space:nowrap;">Base operacional</label>
+            <select id="select-base-operacao" title="Horários e ponto de partida vêm da base escolhida (painel: Regras de entrega)" style="margin:0;flex:1;min-width:0;padding:8px;font-size:12px;" onchange="onChangeBaseOperacaoRotas();"></select>
+        </div>
         <div class="filter-box">
             <label>Data Base:</label>
             <input type="date" id="filtro-data-operacao" onchange="onChangeFiltroDataRotas();">
         </div>
-        <details class="rotas-opcoes-av" style="font-size:11px;margin-bottom:12px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;">
-            <summary style="cursor:pointer;font-weight:700;color:var(--primary);text-transform:none;">Opções da tela e da ordem (voltar atrás se precisar)</summary>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;font-weight:600;">
-                <input type="checkbox" id="chk-rotas-subtle-poll" checked style="width:auto;margin:0;"> Atualização em tempo real <strong>suave</strong> (menos “piscar” o mapa)
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;text-transform:none;font-weight:600;">
-                <input type="checkbox" id="chk-rotas-intel-ordem" checked style="width:auto;margin:0;"> Inteligência ao subir/descer (proximidade; aviso se a rota em linha reta ficar bem mais longa)
-            </label>
-            <p style="margin:10px 0 0;line-height:1.45;text-transform:none;font-weight:500;color:#64748b;">Se algo estranhar: desmarque as opções acima ou no console use <code style="font-size:10px;">localStorage.setItem('rotas_poll_subtle','0')</code> e/ou <code style="font-size:10px;">localStorage.setItem('rotas_intel_ordem','0')</code>. Para reativar: <code style="font-size:10px;">removeItem</code> dessas chaves ou defina <code>'1'</code>.</p>
-        </details>
         <div class="regras-corte-box">
             <div style="flex: 1; text-align: center;">
                 <label style="color: #475569; margin: 0;">⏰ Limite Manhã</label>
@@ -168,8 +162,8 @@
             <button id="btn-recalc-rota" class="btn" style="background: #0ea5e9; color: white; margin: 0; flex: 2; font-size: 11px;" onclick="recalcularDistanciasManuais()">🛣️ Recalcular</button>
             <button id="btn-limpar-rota" class="btn" style="background: #eab308; color: white; margin: 0; flex: 1; font-size: 11px;" onclick="limparRotasDoDia()">🧹 Limpar</button>
         </div>
-        <p style="font-size:10px; color:#64748b; margin:0 0 8px; text-align:center;">
-            ⏱️ Inserção de novos endereços na rota até <b>17:50</b> · Virada automática para o dia seguinte às <b>18:30</b>
+        <p id="txt-regras-insercao" style="font-size:10px; color:#64748b; margin:0 0 8px; text-align:center;">
+            ⏱️ Carregando limites da base…
         </p>
         <div id="rota-warn-banner" class="rota-warn-banner" role="alert" aria-live="polite"></div>
         <button class="btn btn-report" onclick="abrirRelatorio()">📋 2. Relatório e Maps</button>
@@ -205,7 +199,7 @@
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 <script src="/js/api-client.js"></script>
 <script src="/js/endereco-geocode.js"></script>
-<script src="/js/rotas.js?v=20260417-4"></script>
+<script src="/js/rotas.js?v=20260417-14"></script>
 <script src="/js/pwa-bootstrap.js?v=1" defer></script>
 <script src="/js/footer-rfs.js?v=1" defer></script>
 </body>
@@ -350,20 +344,14 @@
             </div>
         </div>
         <h4 style="margin: 20px 0 10px; color: var(--primary); font-size: 14px;">Controle de Rotas</h4>
+        <div id="wrap-select-base-operacao" class="filter-box" style="display:none;margin-bottom:8px;">
+            <label style="margin:0;color:var(--primary);font-weight:bold;font-size:12px;white-space:nowrap;">Base operacional</label>
+            <select id="select-base-operacao" title="Horários e ponto de partida vêm da base escolhida (painel: Regras de entrega)" style="margin:0;flex:1;min-width:0;padding:8px;font-size:12px;" onchange="onChangeBaseOperacaoRotas();"></select>
+        </div>
         <div class="filter-box">
             <label>Data Base:</label>
             <input type="date" id="filtro-data-operacao" onchange="onChangeFiltroDataRotas();">
         </div>
-        <details class="rotas-opcoes-av" style="font-size:11px;margin-bottom:12px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;">
-            <summary style="cursor:pointer;font-weight:700;color:var(--primary);text-transform:none;">Opções da tela e da ordem (voltar atrás se precisar)</summary>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;font-weight:600;">
-                <input type="checkbox" id="chk-rotas-subtle-poll" checked style="width:auto;margin:0;"> Atualização em tempo real <strong>suave</strong> (menos “piscar” o mapa)
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;text-transform:none;font-weight:600;">
-                <input type="checkbox" id="chk-rotas-intel-ordem" checked style="width:auto;margin:0;"> Inteligência ao subir/descer (proximidade; aviso se a rota em linha reta ficar bem mais longa)
-            </label>
-            <p style="margin:10px 0 0;line-height:1.45;text-transform:none;font-weight:500;color:#64748b;">Se algo estranhar: desmarque as opções acima ou no console use <code style="font-size:10px;">localStorage.setItem('rotas_poll_subtle','0')</code> e/ou <code style="font-size:10px;">localStorage.setItem('rotas_intel_ordem','0')</code>. Para reativar: <code style="font-size:10px;">removeItem</code> dessas chaves ou defina <code>'1'</code>.</p>
-        </details>
         <div class="regras-corte-box">
             <div style="flex: 1; text-align: center;">
                 <label style="color: #475569; margin: 0;">⏰ Limite Manhã</label>
@@ -379,8 +367,8 @@
             <button id="btn-recalc-rota" class="btn" style="background: #0ea5e9; color: white; margin: 0; flex: 2; font-size: 11px;" onclick="recalcularDistanciasManuais()">🛣️ Recalcular</button>
             <button id="btn-limpar-rota" class="btn" style="background: #eab308; color: white; margin: 0; flex: 1; font-size: 11px;" onclick="limparRotasDoDia()">🧹 Limpar</button>
         </div>
-        <p style="font-size:10px; color:#64748b; margin:0 0 8px; text-align:center;">
-            ⏱️ Inserção de novos endereços na rota até <b>17:50</b> · Virada automática para o dia seguinte às <b>18:30</b>
+        <p id="txt-regras-insercao" style="font-size:10px; color:#64748b; margin:0 0 8px; text-align:center;">
+            ⏱️ Carregando limites da base…
         </p>
         <div id="rota-warn-banner" class="rota-warn-banner" role="alert" aria-live="polite"></div>
         <button class="btn btn-report" onclick="abrirRelatorio()">📋 2. Relatório e Maps</button>
@@ -415,7 +403,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 <script src="/js/api-client.js"></script>
-<script src="/js/rotas.js?v=20260417-4"></script>
+<script src="/js/rotas.js?v=20260417-11"></script>
 </body>
 </html>
 <!DOCTYPE html>
@@ -574,17 +562,6 @@
             <label>Data Base:</label>
             <input type="date" id="filtro-data-operacao" onchange="onChangeFiltroDataRotas();">
         </div>
-        <details class="rotas-opcoes-av" style="font-size:11px;margin-bottom:12px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;">
-            <summary style="cursor:pointer;font-weight:700;color:var(--primary);text-transform:none;">Opções da tela e da ordem (voltar atrás se precisar)</summary>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;font-weight:600;">
-                <input type="checkbox" id="chk-rotas-subtle-poll" checked style="width:auto;margin:0;"> Atualização em tempo real <strong>suave</strong> (menos “piscar” o mapa)
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;text-transform:none;font-weight:600;">
-                <input type="checkbox" id="chk-rotas-intel-ordem" checked style="width:auto;margin:0;"> Inteligência ao subir/descer (proximidade; aviso se a rota em linha reta ficar bem mais longa)
-            </label>
-            <p style="margin:10px 0 0;line-height:1.45;text-transform:none;font-weight:500;color:#64748b;">Se algo estranhar: desmarque as opções acima ou no console use <code style="font-size:10px;">localStorage.setItem('rotas_poll_subtle','0')</code> e/ou <code style="font-size:10px;">localStorage.setItem('rotas_intel_ordem','0')</code>. Para reativar: <code style="font-size:10px;">removeItem</code> dessas chaves ou defina <code>'1'</code>.</p>
-        </details>
-
         <div class="regras-corte-box">
             <div style="flex: 1; text-align: center;">
                 <label style="color: #475569; margin: 0;">⏰ Limite Manhã</label>
@@ -638,7 +615,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 <script src="/js/api-client.js"></script>
-<script src="/js/rotas.js?v=20260417-4"></script>
+<script src="/js/rotas.js?v=20260417-11"></script>
 </body>
 </html>
 <!DOCTYPE html>
@@ -796,17 +773,6 @@
             <label>Data Base:</label>
             <input type="date" id="filtro-data-operacao" onchange="onChangeFiltroDataRotas();">
         </div>
-        <details class="rotas-opcoes-av" style="font-size:11px;margin-bottom:12px;color:#475569;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#f8fafc;">
-            <summary style="cursor:pointer;font-weight:700;color:var(--primary);text-transform:none;">Opções da tela e da ordem (voltar atrás se precisar)</summary>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;text-transform:none;font-weight:600;">
-                <input type="checkbox" id="chk-rotas-subtle-poll" checked style="width:auto;margin:0;"> Atualização em tempo real <strong>suave</strong> (menos “piscar” o mapa)
-            </label>
-            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;text-transform:none;font-weight:600;">
-                <input type="checkbox" id="chk-rotas-intel-ordem" checked style="width:auto;margin:0;"> Inteligência ao subir/descer (proximidade; aviso se a rota em linha reta ficar bem mais longa)
-            </label>
-            <p style="margin:10px 0 0;line-height:1.45;text-transform:none;font-weight:500;color:#64748b;">Se algo estranhar: desmarque as opções acima ou no console use <code style="font-size:10px;">localStorage.setItem('rotas_poll_subtle','0')</code> e/ou <code style="font-size:10px;">localStorage.setItem('rotas_intel_ordem','0')</code>. Para reativar: <code style="font-size:10px;">removeItem</code> dessas chaves ou defina <code>'1'</code>.</p>
-        </details>
-
         <div class="regras-corte-box">
             <div style="flex: 1; text-align: center;">
                 <label style="color: #475569; margin: 0;">⏰ Limite Manhã</label>
@@ -860,7 +826,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
 <script src="/js/api-client.js"></script>
-<script src="/js/rotas.js?v=20260417-4"></script>
+<script src="/js/rotas.js?v=20260417-11"></script>
 
 </body>
 </html>

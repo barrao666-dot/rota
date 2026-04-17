@@ -7,6 +7,29 @@ async function aplicarMigracoes() {
     await garantirUniqueEmpresasDocumento();
     await garantirColunaHoraPrevista();
     await garantirTabelaMotoristasPosicao();
+    await garantirColunasHorariosEntregaBase();
+}
+
+// Horários de entrega por turno e cortes operacionais (painel empresa → Regras de entrega).
+async function garantirColunasHorariosEntregaBase() {
+    try {
+        const colunas = [
+            ['fim_turno_manha', "VARCHAR(8) NULL DEFAULT '12:00'"],
+            ['fim_turno_tarde', "VARCHAR(8) NULL DEFAULT '18:00'"],
+            ['corte_insercao_rota', "VARCHAR(8) NULL DEFAULT '17:50'"],
+            ['corte_virada_dia', "VARCHAR(8) NULL DEFAULT '18:30'"],
+            ['limite_insercao_manha', "VARCHAR(8) NULL DEFAULT '10:30'"],
+            ['limite_insercao_tarde', "VARCHAR(8) NULL DEFAULT '16:00'"]
+        ];
+        for (const [nome, ddl] of colunas) {
+            const existe = await colunaExiste('bases', nome);
+            if (existe) continue;
+            await db.query(`ALTER TABLE bases ADD COLUMN ${nome} ${ddl}`);
+            console.log(`[Rota++] migração: bases.${nome} criada.`);
+        }
+    } catch (erro) {
+        console.warn('[Rota++] falha ao aplicar migração horários base:', erro && erro.message);
+    }
 }
 
 async function tabelaExiste(tabela) {

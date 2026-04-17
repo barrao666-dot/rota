@@ -4,6 +4,7 @@ const db = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { assertCanAccessEmpresa } = require('../middleware/authz');
 const { logAudit, parseIdOr400 } = require('../utils/route-helpers');
+const { assertNaoPassouViradaDia, validarCapacidadeInsercaoEntrega } = require('../utils/entrega-validacao');
 
 function empresaScopeClause(req) {
     return req.auth.role === 'master' ? null : Number(req.auth.empresaId);
@@ -573,6 +574,21 @@ router.post('/', requireAuth, async (req, res) => {
             if (vinc.erro) return res.status(400).json({ erro: vinc.erro });
             coletaVinculadaId = Number(d.coleta_vinculada_id);
         }
+
+        const vir = await assertNaoPassouViradaDia(db, Number(d.empresa_id), d.dataEntrega);
+        if (!vir.ok) return res.status(400).json({ erro: vir.erro });
+
+        const cap = await validarCapacidadeInsercaoEntrega(db, {
+            empresaId: Number(d.empresa_id),
+            veiculoId: d.veiculo_id,
+            dataEntrega: d.dataEntrega,
+            periodo,
+            pesoNovo: peso || 0,
+            alturaNovo: altura || 0,
+            larguraNovo: largura || 0,
+            comprimentoNovo: comprimento || 0
+        });
+        if (!cap.ok) return res.status(400).json({ erro: cap.erro });
 
         const [result] = await db.query(`
             INSERT INTO coletas (

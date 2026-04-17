@@ -16,6 +16,10 @@ let ENDERECO_BASE_TEXTO = '';
 // contrário, mostramos uma localização errada (de outra empresa) ou rota
 // partindo da base errada.
 let BASE_EMPRESA_OK = false;
+/** Lista de bases da empresa (GET /api/bases/:empresaId). */
+let BASES_CACHE = [];
+/** ID da base usada para horários, limites e ponto de partida no mapa. */
+let BASE_ATIVA_ID = null;
 
 let TABELA_PRODUTOS = {}; let FROTA_VEICULOS = []; let MOTORISTAS_EQUIPE = [];
 
@@ -25,14 +29,47 @@ let ultimaAssinaturaLinhasRota = '';
 const ROTAS_KM_ALERTA_MOVIMENTO = 2.0;
 const ROTAS_KM_MELHORIA_REFINO = 0.25;
 
-// Regras de horário (cut-offs do turno)
-// Limite para aceitar NOVAS entregas/endereços na rota do dia corrente.
-const CORTE_INSERCAO_ROTA = '17:50';
-// Limite para virar o dia: pendências e rotas não iniciadas migram para o próximo dia.
-const CORTE_VIRADA_DIA = '18:30';
-// Fim padrão dos turnos (usado para validar transbordo do turno e realocação).
-const FIM_TURNO_MANHA = '12:00';
-const FIM_TURNO_TARDE = '18:00';
+// Regras de horário (cut-offs do turno) — padrões; sobrescritos pela base em /api/bases.
+/** Último horário para incluir novas paradas no turno da manhã (hoje). */
+let LIMITE_INSERCAO_MANHA = '10:30';
+/** Último horário para incluir novas paradas no turno da tarde (hoje). */
+let LIMITE_INSERCAO_TARDE = '16:00';
+let CORTE_VIRADA_DIA = '18:30';
+let FIM_TURNO_MANHA = '12:00';
+let FIM_TURNO_TARDE = '18:00';
+
+function aplicarHorariosDaBase(baseAtiva) {
+    if (!baseAtiva) return;
+    if (baseAtiva.corte_manha) CORTE_MANHA = String(baseAtiva.corte_manha).slice(0, 5);
+    if (baseAtiva.corte_tarde) CORTE_TARDE = String(baseAtiva.corte_tarde).slice(0, 5);
+    if (baseAtiva.fim_turno_manha) FIM_TURNO_MANHA = String(baseAtiva.fim_turno_manha).slice(0, 5);
+    if (baseAtiva.fim_turno_tarde) FIM_TURNO_TARDE = String(baseAtiva.fim_turno_tarde).slice(0, 5);
+    if (baseAtiva.limite_insercao_manha) {
+        LIMITE_INSERCAO_MANHA = String(baseAtiva.limite_insercao_manha).slice(0, 5);
+    } else if (baseAtiva.corte_insercao_rota) {
+        LIMITE_INSERCAO_MANHA = String(baseAtiva.corte_insercao_rota).slice(0, 5);
+    }
+    if (baseAtiva.limite_insercao_tarde) {
+        LIMITE_INSERCAO_TARDE = String(baseAtiva.limite_insercao_tarde).slice(0, 5);
+    } else if (baseAtiva.corte_insercao_rota) {
+        LIMITE_INSERCAO_TARDE = String(baseAtiva.corte_insercao_rota).slice(0, 5);
+    }
+    if (baseAtiva.corte_virada_dia) CORTE_VIRADA_DIA = String(baseAtiva.corte_virada_dia).slice(0, 5);
+    atualizarUiLimitesHorario();
+}
+
+/** Atualiza os números de “Limite manhã/tarde” e o texto do rodapé com os valores da base (painel). */
+function atualizarUiLimitesHorario() {
+    const cutM = document.getElementById('lbl-corte-manha');
+    const cutT = document.getElementById('lbl-corte-tarde');
+    if (cutM) cutM.innerText = LIMITE_INSERCAO_MANHA;
+    if (cutT) cutT.innerText = LIMITE_INSERCAO_TARDE;
+    const rod = document.getElementById('txt-regras-insercao');
+    if (rod) {
+        rod.innerHTML =
+            `⏱️ Inserção: manhã até <b>${LIMITE_INSERCAO_MANHA}</b> · tarde até <b>${LIMITE_INSERCAO_TARDE}</b> · Virada do dia <b>${CORTE_VIRADA_DIA}</b>`;
+    }
+}
 
 // Limiares para avisos de reordenação (distância total em linha reta).
 const ROTA_AVISO_AUMENTO_KM = 1.5;     // +1,5km no percurso já avisa o operador
@@ -40,6 +77,10 @@ const ROTA_AVISO_AUMENTO_PCT = 0.20;   // ou +20% sobre o custo anterior
 // Densidade volumétrica padrão (~0,0025 m³ por kg) para estimar capacidade
 // volumétrica quando o veículo não possui esse campo cadastrado.
 const VEICULO_VOLUME_PADRAO_M3_POR_KG = 0.0025;
+
+/** Margem extra (min) após o corte de expedição: o trecho estimado (viagem + serviço) precisa caber no relógio até o fim do turno. */
+/** Fallback se a API de direções falhar ao estimar um trecho (min). */
+const VIAGEM_ESTIMADA_FALLBACK_MIN = 25;
 
 function rotasPollSubtleLigado() {
     return localStorage.getItem('rotas_poll_subtle') !== '0';
@@ -524,12 +565,16 @@ function agoraDecimal() {
     return n.getHours() + (n.getMinutes() / 60);
 }
 
-// True se o horário atual já ultrapassou o limite de inserção (17:50 por padrão)
-// para a data informada (só faz sentido travar "hoje").
-function passouLimiteInsercaoHoje(dataEntregaStr) {
+/**
+ * Limite de inserção por turno para "hoje" (configurável em Regras de entrega).
+ * Depois deste horário, novas inclusões naquele turno só no dia seguinte ou via Forçar.
+ */
+function passouLimiteInsercaoTurnoHoje(dataEntregaStr, periodo) {
     if (dataEntregaStr !== getToday()) return false;
-    const limite = horaParaDecimal(CORTE_INSERCAO_ROTA, 17 + (50 / 60));
-    return agoraDecimal() >= limite;
+    const lim = periodo === 'manha'
+        ? horaParaDecimal(LIMITE_INSERCAO_MANHA, 10.5)
+        : horaParaDecimal(LIMITE_INSERCAO_TARDE, 16);
+    return agoraDecimal() >= lim;
 }
 
 // True se já passou do horário de virada (18:30) em relação a "hoje".
@@ -560,6 +605,12 @@ function tempoEstimadoTotalTurnoMin(dataFiltro, turno) {
 function fimDoTurnoDecimal(turno) {
     if (turno === 'manha') return horaParaDecimal(FIM_TURNO_MANHA, 12);
     return horaParaDecimal(FIM_TURNO_TARDE, 18);
+}
+
+function inicioDoTurnoDecimal(turno) {
+    return turno === 'manha'
+        ? horaParaDecimal(CORTE_MANHA, 9)
+        : horaParaDecimal(CORTE_TARDE, 14);
 }
 
 // Calcula capacidade utilizada (peso em kg e volume em m³) para um turno.
@@ -596,6 +647,107 @@ function capacidadeVeiculoSelecionado() {
         ? parseFloat(v.capacidade_volume_m3)
         : pesoMax * VEICULO_VOLUME_PADRAO_M3_POR_KG;
     return { id: v.id, modelo: v.modelo, placa: v.placa, pesoMax, volumeMax };
+}
+
+function volumeM3DeSpecs(specs) {
+    const a = parseFloat(specs?.a || specs?.altura || 0) || 0;
+    const l = parseFloat(specs?.l || specs?.largura || 0) || 0;
+    const c = parseFloat(specs?.c || specs?.comprimento || 0) || 0;
+    return (a * l * c) / 1_000_000;
+}
+
+/** Soma peso/volume de todos os pacotes do turno (roteados ou não), exceto concluídos. */
+function agregarCargaTurnoIncluindoPendentes(dataFiltro, turno) {
+    let pesoKg = 0;
+    let volumeM3 = 0;
+    for (const e of entregas) {
+        if (e.dataEntrega !== dataFiltro || e.periodo !== turno || e.status === 'concluida') continue;
+        pesoKg += parseFloat(e.specs?.peso || 0) || 0;
+        volumeM3 += volumeM3DeSpecs(e.specs || {});
+    }
+    return { pesoKg, volumeM3 };
+}
+
+/** Bloqueia inclusão se o veículo selecionado não suportar peso/volume (inclui o novo item). */
+function validarCapacidadeComNovoPacote(dataFiltro, turno, specsNovo) {
+    const cap = capacidadeVeiculoSelecionado();
+    if (!cap || cap.pesoMax <= 0) return { ok: true };
+    const base = agregarCargaTurnoIncluindoPendentes(dataFiltro, turno);
+    const pAdd = parseFloat(specsNovo?.peso || 0) || 0;
+    const vAdd = volumeM3DeSpecs(specsNovo || {});
+    const peso = base.pesoKg + pAdd;
+    const vol = base.volumeM3 + vAdd;
+    if (peso > cap.pesoMax || vol > cap.volumeMax) {
+        const partes = [];
+        if (peso > cap.pesoMax) partes.push(`peso total ${peso.toFixed(1)}kg &gt; ${cap.pesoMax.toFixed(0)}kg`);
+        if (vol > cap.volumeMax) partes.push(`volume total ${vol.toFixed(3)}m³ &gt; ${cap.volumeMax.toFixed(3)}m³`);
+        return {
+            ok: false,
+            msg: `⚠️ Capacidade do veículo (${cap.modelo} ${cap.placa}) excedida: ${partes.join(' e ')}.`
+        };
+    }
+    return { ok: true };
+}
+
+async function estimarMinutosParaIncluirParadaNoTurno(dataEnt, periodo, coordsNovo, tempoServicoSeg) {
+    const servMin = Math.max(1, Math.round((Number(tempoServicoSeg) || 600) / 60));
+    if (!BASE_EMPRESA_OK || !Array.isArray(coordsNovo) || coordsNovo.length < 2) {
+        return servMin + VIAGEM_ESTIMADA_FALLBACK_MIN;
+    }
+    const lista = listaPacotesRotaOrdenada(dataEnt, periodo);
+    let origem = LOJA_COORDS;
+    if (lista.length > 0) {
+        const last = lista[lista.length - 1];
+        if (last.coords && last.coords.length >= 2) origem = last.coords;
+    }
+    try {
+        const r = await apiFetch('/api/ors/directions/driving-car/json', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ coordinates: [origem, coordsNovo] })
+        });
+        const data = await r.json();
+        if (data.routes && data.routes[0].segments && data.routes[0].segments[0]) {
+            return servMin + Math.round(data.routes[0].segments[0].duration / 60);
+        }
+    } catch (e) {
+        console.warn('[rotas] estimarMinutosParaIncluirParadaNoTurno', e);
+    }
+    return servMin + VIAGEM_ESTIMADA_FALLBACK_MIN;
+}
+
+/**
+ * (1) Limite de inserção por turno (config. Regras de entrega). (2) Cabe no relógio do turno (início→fim).
+ * Opção `ignorarLimiteInsercaoTurno` só após confirmação em "Forçar na rota".
+ */
+async function validarInclusaoEnderecoNoDia(dataEnt, periodo, coordsNovo, tempoServicoSeg, opts = {}) {
+    if (dataEnt !== getToday()) return { ok: true };
+    if (passouViradaDia()) {
+        return {
+            ok: false,
+            msg: `Após ${CORTE_VIRADA_DIA} novas entregas só são aceitas no próximo dia.`
+        };
+    }
+    if (passouLimiteInsercaoTurnoHoje(dataEnt, periodo) && !opts.ignorarLimiteInsercaoTurno) {
+        const limH = periodo === 'manha' ? LIMITE_INSERCAO_MANHA : LIMITE_INSERCAO_TARDE;
+        return {
+            ok: false,
+            msg: `⚠️ O limite de inserção do turno ${periodo === 'manha' ? 'da manhã' : 'da tarde'} (${limH}) já passou. ` +
+                'Altere a data para o dia seguinte ou use "Forçar na rota" no cartão (com confirmação).'
+        };
+    }
+    const ini = inicioDoTurnoDecimal(periodo);
+    const fim = fimDoTurnoDecimal(periodo);
+    const inc = await estimarMinutosParaIncluirParadaNoTurno(dataEnt, periodo, coordsNovo, tempoServicoSeg);
+    const T0 = tempoEstimadoTotalTurnoMin(dataEnt, periodo);
+    if (ini + (T0 + inc) / 60 > fim + 1e-9) {
+        const lim = periodo === 'manha' ? FIM_TURNO_MANHA : FIM_TURNO_TARDE;
+        return {
+            ok: false,
+            msg: `⚠️ O tempo total estimado (rota atual + nova parada) ultrapassa o fim do turno (${lim}).`
+        };
+    }
+    return { ok: true };
 }
 
 // Retorna true se o registro é uma COLETA (tipo "Coleta" ou prefixo no nome).
@@ -685,11 +837,6 @@ function aplicarRegraHorario(opts = {}) {
     const agora = new Date();
     const tempoDecimal = agora.getHours() + (agora.getMinutes() / 60);
 
-    const corteManha = horaParaDecimal(CORTE_MANHA, 9.0);
-    const corteTarde = horaParaDecimal(CORTE_TARDE, 14.0);
-    const travaManha = corteManha + 0.5;
-    const travaHoje = corteTarde + 0.5;
-
     optManha.disabled = false;
     optTarde.disabled = false;
 
@@ -698,7 +845,8 @@ function aplicarRegraHorario(opts = {}) {
         return aplicarRegraHorario(opts);
     }
 
-    const limiteInsercao = horaParaDecimal(CORTE_INSERCAO_ROTA, 17 + (50 / 60));
+    const limInsManha = horaParaDecimal(LIMITE_INSERCAO_MANHA, 10.5);
+    const limInsTarde = horaParaDecimal(LIMITE_INSERCAO_TARDE, 16);
     const limiteVirada = horaParaDecimal(CORTE_VIRADA_DIA, 18.5);
 
     if (dataSelecionada === hoje) {
@@ -708,22 +856,25 @@ function aplicarRegraHorario(opts = {}) {
             if (!silent) mostrarErro(`Após ${CORTE_VIRADA_DIA} novas entregas só são aceitas no próximo dia (virada automática).`);
             return;
         }
-        if (tempoDecimal >= limiteInsercao) {
-            if (!silent) mostrarErro(`⚠️ Após ${CORTE_INSERCAO_ROTA} não é permitido inserir novos endereços na rota do dia. A data foi ajustada para o próximo dia.`);
+        if (tempoDecimal >= limInsTarde) {
+            if (!silent) {
+                mostrarErro(
+                    `⚠️ Após o limite de inserção da tarde (${LIMITE_INSERCAO_TARDE}) não é possível incluir novos endereços para hoje. ` +
+                    'A data foi ajustada para o próximo dia.'
+                );
+            }
             inputData.value = adicionarUmDia(hoje);
             if (selectPeriodo.value !== 'manha') selectPeriodo.value = 'manha';
             return;
         }
-        if (tempoDecimal >= travaHoje) {
-            inputData.value = adicionarUmDia(hoje);
-            if (selectPeriodo.value !== 'manha') selectPeriodo.value = 'manha';
-            if (!silent) mostrarErro(`Após ${CORTE_TARDE} (+30min), novos agendamentos vão para o próximo dia.`);
-            return;
-        }
-        if (tempoDecimal >= travaManha) {
+        if (tempoDecimal >= limInsManha) {
             optManha.disabled = true;
             if (selectPeriodo.value === 'manha') selectPeriodo.value = 'tarde';
-            if (!silent) mostrarErro(`Após ${CORTE_MANHA} (+30min), turno da manhã fica indisponível para novos agendamentos.`);
+            if (!silent) {
+                mostrarErro(
+                    `Após o limite de inserção da manhã (${LIMITE_INSERCAO_MANHA}), novos agendamentos para hoje usam apenas o turno da tarde.`
+                );
+            }
         }
     }
 }
@@ -1064,7 +1215,12 @@ async function resolverBasePeloCadastroEmpresa(baseExistente) {
                     lat: coords.lat,
                     lng: coords.lng,
                     corte_manha: baseExistente.corte_manha || '09:00',
-                    corte_tarde: baseExistente.corte_tarde || '14:00'
+                    corte_tarde: baseExistente.corte_tarde || '14:00',
+                    fim_turno_manha: baseExistente.fim_turno_manha,
+                    fim_turno_tarde: baseExistente.fim_turno_tarde,
+                    limite_insercao_manha: baseExistente.limite_insercao_manha || baseExistente.corte_insercao_rota || '10:30',
+                    limite_insercao_tarde: baseExistente.limite_insercao_tarde || baseExistente.corte_insercao_rota || '16:00',
+                    corte_virada_dia: baseExistente.corte_virada_dia
                 })
             });
         } else {
@@ -1078,7 +1234,12 @@ async function resolverBasePeloCadastroEmpresa(baseExistente) {
                     lat: coords.lat,
                     lng: coords.lng,
                     corte_manha: '09:00',
-                    corte_tarde: '14:00'
+                    corte_tarde: '14:00',
+                    fim_turno_manha: '12:00',
+                    fim_turno_tarde: '18:00',
+                    limite_insercao_manha: '10:30',
+                    limite_insercao_tarde: '16:00',
+                    corte_virada_dia: '18:30'
                 })
             });
         }
@@ -1117,38 +1278,157 @@ function exibirAvisoBaseNaoConfigurada(baseExistente) {
     }
 }
 
+function storageKeyBaseRotas() {
+    return empresaId != null ? `rotas_base_operacao_${empresaId}` : 'rotas_base_operacao';
+}
+
+/** Escolhe o id da base salvo no navegador, ou a primeira lista, se inválido. */
+function obterIdBaseSalvaPreferencia(basesList) {
+    if (!basesList || basesList.length === 0) return null;
+    const raw = localStorage.getItem(storageKeyBaseRotas());
+    if (raw) {
+        const id = Number(raw);
+        if (Number.isFinite(id) && basesList.some((b) => Number(b.id) === id)) return id;
+    }
+    return Number(basesList[0].id);
+}
+
+function montarSeletorBaseOperacao(basesList, idSelecionado) {
+    const wrap = document.getElementById('wrap-select-base-operacao');
+    const sel = document.getElementById('select-base-operacao');
+    if (!wrap || !sel) return;
+    sel.innerHTML = '';
+    (basesList || []).forEach((b) => {
+        const id = Number(b.id);
+        const nome = String(b.nome || `Base ${id}`).replace(/</g, '');
+        sel.innerHTML += `<option value="${id}">${nome}</option>`;
+    });
+    wrap.style.display = basesList && basesList.length > 1 ? '' : 'none';
+    if (idSelecionado != null && basesList && basesList.some((b) => Number(b.id) === Number(idSelecionado))) {
+        sel.value = String(idSelecionado);
+    }
+}
+
+/**
+ * Aplica horários da base, coords no mapa e textos (sidebar / relatório).
+ * Não tenta geocodificar — use tentarResolverCoordsBase depois se precisar.
+ */
+function aplicarBaseSelecionadaNaTela(baseAtiva) {
+    if (baseAtiva) aplicarHorariosDaBase(baseAtiva);
+    else atualizarUiLimitesHorario();
+
+    const latNum = baseAtiva ? parseFloat(baseAtiva.lat) : NaN;
+    const lngNum = baseAtiva ? parseFloat(baseAtiva.lng) : NaN;
+    const baseTemCoords = baseAtiva && Number.isFinite(latNum) && Number.isFinite(lngNum);
+
+    const banner = document.getElementById('rota-warn-banner');
+    if (banner && baseTemCoords) {
+        banner.style.display = 'none';
+        banner.classList.remove('show');
+        banner.innerText = '';
+    }
+
+    const nomeBase = baseAtiva ? String(baseAtiva.nome || '').trim() : '';
+    const trechoEnd = baseAtiva && baseAtiva.endereco ? String(baseAtiva.endereco).split('-')[0].trim() : '';
+
+    if (baseTemCoords) {
+        LOJA_COORDS = [lngNum, latNum];
+        BASE_EMPRESA_OK = true;
+        ENDERECO_BASE_TEXTO = baseAtiva.endereco || '';
+        const relBase = document.getElementById('txt-relatorio-base');
+        if (relBase) {
+            relBase.innerText = trechoEnd
+                ? `Saída: ${nomeBase ? `${nomeBase} · ` : ''}${trechoEnd}`
+                : (nomeBase ? `Saída: ${nomeBase}` : 'Relatório Analítico');
+        }
+        const sideBase = document.getElementById('txt-endereco-base-sidebar');
+        if (sideBase) {
+            sideBase.innerText = trechoEnd ? `${nomeBase ? `${nomeBase} · ` : ''}${trechoEnd}` : (nomeBase || 'Base');
+        }
+        focarMapaNaBaseRotas();
+    } else {
+        LOJA_COORDS = null;
+        BASE_EMPRESA_OK = false;
+        const sideBase = document.getElementById('txt-endereco-base-sidebar');
+        if (sideBase) {
+            if (!baseAtiva) {
+                sideBase.innerText = 'Nenhuma base — cadastre em Bases operacionais';
+            } else if (trechoEnd) {
+                sideBase.innerText = `${nomeBase ? `${nomeBase} · ` : ''}${trechoEnd} (sem GPS)`;
+            } else {
+                sideBase.innerText = nomeBase ? `${nomeBase} · cadastre endereço no painel` : 'Base sem endereço';
+            }
+        }
+        const relBase = document.getElementById('txt-relatorio-base');
+        if (relBase && baseAtiva) {
+            relBase.innerText = trechoEnd
+                ? `Saída: ${nomeBase ? `${nomeBase} · ` : ''}${trechoEnd}`
+                : `Saída: ${nomeBase || 'Base'}`;
+        }
+    }
+}
+
+async function tentarResolverCoordsBase(baseAtiva) {
+    if (!baseAtiva) return;
+    const latNum = parseFloat(baseAtiva.lat);
+    const lngNum = parseFloat(baseAtiva.lng);
+    if (Number.isFinite(latNum) && Number.isFinite(lngNum)) return;
+    const resolvido = await resolverBasePeloCadastroEmpresa(baseAtiva);
+    if (resolvido) {
+        try {
+            const bases = await apiFetchJson(`/api/bases/${empresaId}`);
+            BASES_CACHE = Array.isArray(bases) ? bases : [];
+            const hit = BASES_CACHE.find((b) => Number(b.id) === Number(baseAtiva.id));
+            if (hit) aplicarBaseSelecionadaNaTela(hit);
+        } catch (e) {
+            aplicarBaseSelecionadaNaTela(baseAtiva);
+        }
+    } else {
+        exibirAvisoBaseNaoConfigurada(baseAtiva);
+    }
+}
+
+async function onChangeBaseOperacaoRotas() {
+    const sel = document.getElementById('select-base-operacao');
+    if (!sel || !empresaId) return;
+    const id = Number(sel.value);
+    if (!Number.isFinite(id)) return;
+    localStorage.setItem(storageKeyBaseRotas(), String(id));
+    BASE_ATIVA_ID = id;
+    const baseAtiva = BASES_CACHE.find((b) => Number(b.id) === id);
+    aplicarBaseSelecionadaNaTela(baseAtiva || null);
+    if (baseAtiva && !BASE_EMPRESA_OK) {
+        await tentarResolverCoordsBase(baseAtiva);
+    }
+    const filtro = document.getElementById('filtro-data-operacao');
+    atualizarBannerAvisosRota(filtro ? filtro.value : getToday());
+    invalidarCachesyncRotas();
+    try {
+        await carregarDados({ subtle: true });
+    } catch (e) {
+        console.warn('[rotas] onChangeBaseOperacaoRotas carregarDados', e);
+    }
+}
+window.onChangeBaseOperacaoRotas = onChangeBaseOperacaoRotas;
+
 async function carregarConfiguracoesDaEmpresa() {
     try {
         const bases = await apiFetchJson(`/api/bases/${empresaId}`);
-        const baseAtiva = bases && bases.length > 0 ? bases[0] : null;
-        const latNum = baseAtiva ? parseFloat(baseAtiva.lat) : NaN;
-        const lngNum = baseAtiva ? parseFloat(baseAtiva.lng) : NaN;
-        const baseTemCoords = baseAtiva && Number.isFinite(latNum) && Number.isFinite(lngNum);
+        BASES_CACHE = Array.isArray(bases) ? bases : [];
+        const idPref = obterIdBaseSalvaPreferencia(BASES_CACHE);
+        const baseAtiva = idPref != null ? BASES_CACHE.find((b) => Number(b.id) === idPref) : null;
+        BASE_ATIVA_ID = baseAtiva ? Number(baseAtiva.id) : null;
+        if (BASE_ATIVA_ID != null) {
+            localStorage.setItem(storageKeyBaseRotas(), String(BASE_ATIVA_ID));
+        }
 
-        if (baseTemCoords) {
-            LOJA_COORDS = [lngNum, latNum];
-            BASE_EMPRESA_OK = true;
-            ENDERECO_BASE_TEXTO = baseAtiva.endereco || '';
-            CORTE_MANHA = baseAtiva.corte_manha || CORTE_MANHA;
-            CORTE_TARDE = baseAtiva.corte_tarde || CORTE_TARDE;
-            const relBase = document.getElementById('txt-relatorio-base');
-            if (relBase && baseAtiva.endereco) relBase.innerText = `Saída: ${baseAtiva.endereco.split('-')[0]}`;
-            const sideBase = document.getElementById('txt-endereco-base-sidebar');
-            if (sideBase && baseAtiva.endereco) sideBase.innerText = baseAtiva.endereco.split('-')[0];
-            const cutM = document.getElementById('lbl-corte-manha');
-            const cutT = document.getElementById('lbl-corte-tarde');
-            if (cutM) cutM.innerText = CORTE_MANHA;
-            if (cutT) cutT.innerText = CORTE_TARDE;
-            focarMapaNaBaseRotas();
-        } else {
-            // Sem base com coordenadas: NÃO podemos cair no LOJA_COORDS default,
-            // que aponta para a região de outra empresa. Tentamos resolver pelo
-            // endereço da empresa logada (localStorage). Se conseguir geocodar,
-            // gravamos a base no backend para a próxima sessão já abrir certa.
-            const resolvido = await resolverBasePeloCadastroEmpresa(baseAtiva);
-            if (!resolvido) {
-                exibirAvisoBaseNaoConfigurada(baseAtiva);
-            }
+        montarSeletorBaseOperacao(BASES_CACHE, BASE_ATIVA_ID);
+        aplicarBaseSelecionadaNaTela(baseAtiva);
+
+        if (baseAtiva && !BASE_EMPRESA_OK) {
+            await tentarResolverCoordsBase(baseAtiva);
+        } else if (!baseAtiva) {
+            exibirAvisoBaseNaoConfigurada(null);
         }
 
         const regras = await apiFetchJson(`/api/regras/${empresaId}`);
@@ -1169,7 +1449,9 @@ async function carregarConfiguracoesDaEmpresa() {
             });
             selV.dataset.bannerBound = '1';
         }
-    } catch(e) {}
+    } catch (e) {
+        console.warn('[rotas] carregarConfiguracoesDaEmpresa', e);
+    }
 }
 
 function abrirCameraBarcode() {
@@ -1413,10 +1695,9 @@ async function verificarRotasExpiradas(opts = {}) {
                 }
             }
             // Migração manhã→tarde: somente para itens AINDA NÃO ROTEADOS.
-            // Quando o usuário (ou o ORS) já fixou o item em uma rota da manhã,
-            // a decisão é respeitada — caso contrário o poll destruiria rotas
-            // recém-criadas após as 12h, exatamente o sintoma reportado.
-            else if (!e.ordem && e.periodo === 'manha' && tempoDecimal >= fimManhaDecimal) {
+            // Usa o limite de inserção da manhã (Regras de entrega na base), não o fim da janela —
+            // depois desse horário novas inclusões na manhã não são mais aceitas para hoje.
+            else if (!e.ordem && e.periodo === 'manha' && tempoDecimal >= horaParaDecimal(LIMITE_INSERCAO_MANHA, 10.5)) {
                 novoPeriodo = 'tarde';
             }
         }
@@ -1557,9 +1838,6 @@ async function addFornecedorFila() {
     const dataEnt = document.getElementById('data-entrega').value;
     let per = document.getElementById('periodo').value;
     if (!dataEnt) return mostrarErro('Informe a data de entrega antes de inserir a coleta.');
-    if (passouLimiteInsercaoHoje(dataEnt)) {
-        return mostrarErro(`⚠️ Após ${CORTE_INSERCAO_ROTA} não é permitido inserir novos endereços na rota do dia. Selecione uma data futura.`);
-    }
 
     // Resolve o vínculo (opcional). Quando há entrega-alvo, a coleta herda o
     // período dela — caso contrário o pickup poderia cair em turno diferente.
@@ -1576,6 +1854,13 @@ async function addFornecedorFila() {
         }
         coletaVinculadaId = Number(entregaAlvo.id);
         per = entregaAlvo.periodo || per;
+    }
+
+    try {
+        const tv = await validarInclusaoEnderecoNoDia(dataEnt, per, [parseFloat(f.lng), parseFloat(f.lat)], 3000);
+        if (!tv.ok) return mostrarErro(tv.msg);
+    } catch (e) {
+        return mostrarErro('Não foi possível validar o horário da coleta. Tente novamente.');
     }
 
     const payload = {
@@ -1632,11 +1917,6 @@ async function salvarPacote() {
     const btn = document.getElementById('btn-salvar');
     const nomeCliente = document.getElementById('nome-cliente').value.trim(), cepRaw = document.getElementById('endereco-cep').value.trim(), rua = document.getElementById('endereco-rua').value.trim(), num = document.getElementById('endereco-num').value.trim(), bairro = document.getElementById('endereco-bairro').value.trim(), cidade = document.getElementById('endereco-cidade').value.trim(), estado = document.getElementById('endereco-estado').value, dataEnt = document.getElementById('data-entrega').value, per = document.getElementById('periodo').value, tam = document.getElementById('tamanho').value; 
     esconderMensagens(); if(!rua || !num || !bairro || !dataEnt) return mostrarErro("⚠️ Preencha Rua, Número, Bairro e Data.");
-    // Bloqueia inclusão de novos endereços na rota do dia após o corte de inserção (17:50).
-    // Somente entregas cuja data seja o dia corrente são travadas; datas futuras seguem normalmente.
-    if (idEditando === null && passouLimiteInsercaoHoje(dataEnt)) {
-        return mostrarErro(`⚠️ Após ${CORTE_INSERCAO_ROTA} não é permitido inserir novos endereços na rota do dia. Altere a data para o próximo dia.`);
-    }
     const cepDigits = cepRaw.replace(/\D/g, '');
     const calcCep = cepDigits ? `, CEP: ${cepDigits}` : '';
     let enderecoCompleto = `${rua}, ${num} - ${bairro}, ${cidade} - ${estado}${calcCep}`;
@@ -1669,9 +1949,44 @@ async function salvarPacote() {
     }
 
     const specs = TABELA_PRODUTOS[tam] || { peso: 10, a: 30, l: 30, c: 30, tempoServico: 600 };
+    if (idEditando === null) {
+        const capV = validarCapacidadeComNovoPacote(dataEnt, per, { peso: specs.peso, a: specs.a, l: specs.l, c: specs.c });
+        if (!capV.ok) {
+            btn.innerHTML = "➕ Adicionar à Fila";
+            btn.style.background = "var(--accent)";
+            btn.disabled = false;
+            return mostrarErro(capV.msg);
+        }
+        const tv = await validarInclusaoEnderecoNoDia(dataEnt, per, [lon, lat], specs.tempoServico);
+        if (!tv.ok) {
+            btn.innerHTML = "➕ Adicionar à Fila";
+            btn.style.background = "var(--accent)";
+            btn.disabled = false;
+            return mostrarErro(tv.msg);
+        }
+    }
     try {
         const codigoBarras = (document.getElementById('codigo-barras') && document.getElementById('codigo-barras').value.trim()) || null;
-        const payload = { empresa_id: empresaId, fornecedor: nomeCliente, endereco: enderecoCompleto, lat, lng: lon, peso: specs.peso, altura: specs.a, largura: specs.l, comprimento: specs.c, tempo_medio: specs.tempoServico, dataEntrega: dataEnt, periodo: per, tamanho: tam, status: 'pendente', codigo_barras: codigoBarras };
+        const selVei = document.getElementById('select-veiculo');
+        const veiculoIdPost = selVei && selVei.value ? Number(selVei.value) : null;
+        const payload = {
+            empresa_id: empresaId,
+            fornecedor: nomeCliente,
+            endereco: enderecoCompleto,
+            lat,
+            lng: lon,
+            peso: specs.peso,
+            altura: specs.a,
+            largura: specs.l,
+            comprimento: specs.c,
+            tempo_medio: specs.tempoServico,
+            dataEntrega: dataEnt,
+            periodo: per,
+            tamanho: tam,
+            status: 'pendente',
+            codigo_barras: codigoBarras,
+            veiculo_id: Number.isFinite(veiculoIdPost) && veiculoIdPost > 0 ? veiculoIdPost : null
+        };
         btn.innerText = "⏳ Salvando BD...";
         
         let url = '/api/coletas'; let method = 'POST';
@@ -1980,8 +2295,26 @@ async function moverOrdem(id, direcao) {
 async function forcarNaRota(id, turno) {
     const p = entregas.find(e => e.id == id);
     if (!p) return;
-    if (passouLimiteInsercaoHoje(p.dataEntrega)) {
-        return mostrarErro(`⚠️ Após ${CORTE_INSERCAO_ROTA} não é permitido inserir novos endereços na rota do dia.`);
+    if (!p.coords || p.coords.length < 2) {
+        return mostrarErro('Ponto sem GPS válido; não é possível validar tempo de deslocamento.');
+    }
+    const opts = {};
+    if (p.dataEntrega === getToday() && passouLimiteInsercaoTurnoHoje(p.dataEntrega, turno)) {
+        const limH = turno === 'manha' ? LIMITE_INSERCAO_MANHA : LIMITE_INSERCAO_TARDE;
+        const conf = confirm(
+            'Limite de inserção deste turno já passou\n\n' +
+            `Horário limite configurado: ${limH} (${turno === 'manha' ? 'manhã' : 'tarde'}).\n\n` +
+            'Incluir na rota mesmo assim pode causar atraso, estouro da janela de fim de turno ou expectativa incorreta para o cliente.\n\n' +
+            'Confirma forçar a entrada na rota?'
+        );
+        if (!conf) return;
+        opts.ignorarLimiteInsercaoTurno = true;
+    }
+    try {
+        const tv = await validarInclusaoEnderecoNoDia(p.dataEntrega, turno, p.coords, p.specs?.tempoServico || 600, opts);
+        if (!tv.ok) return mostrarErro(tv.msg);
+    } catch (e) {
+        return mostrarErro('Não foi possível validar o horário. Tente novamente.');
     }
     const pacotesOrdem = entregas.filter(x => x.dataEntrega === p.dataEntrega && x.status !== 'concluida' && x.periodo === turno && x.ordem);
     const ordem = pacotesOrdem.length + 1;
@@ -2116,6 +2449,139 @@ function renderizarListaSimples(opts = {}) {
     }
 }
 
+/**
+ * Pós-processamento: se a soma viagem+serviço ultrapassar o fim do turno no relógio,
+ * move o tail para o próximo turno no mesmo dia; se a tarde estourar, migra para o dia seguinte.
+ * Não altera o cálculo de distância — só redistribui paradas já com tempo_viagem preenchido.
+ */
+async function redistribuirEstouroJanelaTurno(dataFiltro) {
+    if (!BASE_EMPRESA_OK) return false;
+    const proximoDiaIso = somarDiasIso(dataFiltro, 1);
+    let mudou = false;
+
+    function indiceEstouroManha(pacotesManha) {
+        const inicioM = inicioDoTurnoDecimal('manha');
+        const fimM = fimDoTurnoDecimal('manha');
+        let acumMin = 0;
+        for (let i = 0; i < pacotesManha.length; i++) {
+            const p = pacotesManha[i];
+            acumMin += parseInt(p.tempoViagem, 10) || 0;
+            const chegadaDec = inicioM + acumMin / 60;
+            const servMin = Math.round((Number(p.specs?.tempoServico) || 600) / 60);
+            const fimServicoDec = chegadaDec + servMin / 60;
+            if (chegadaDec > fimM || fimServicoDec > fimM) return i;
+            acumMin += servMin;
+        }
+        return -1;
+    }
+
+    for (;;) {
+        const manha = listaPacotesRotaOrdenada(dataFiltro, 'manha');
+        const idx = indiceEstouroManha(manha);
+        if (idx < 0) break;
+        const migrar = manha.slice(idx);
+        let maxOt = 0;
+        entregas.forEach((e) => {
+            if (e.dataEntrega === dataFiltro && e.periodo === 'tarde' && e.ordem) {
+                maxOt = Math.max(maxOt, e.ordem);
+            }
+        });
+        migrar.forEach((p) => {
+            p.periodo = 'tarde';
+            p.corIcone = '#2563eb';
+            p.ordem = ++maxOt;
+            p.tempoViagem = null;
+            p.distanciaTrecho = null;
+            p.horaPrevista = null;
+            mudou = true;
+        });
+    }
+
+    const tarde = listaPacotesRotaOrdenada(dataFiltro, 'tarde');
+    const inicioT = inicioDoTurnoDecimal('tarde');
+    const fimT = fimDoTurnoDecimal('tarde');
+    let acumMinT = 0;
+    let idxT = -1;
+    for (let i = 0; i < tarde.length; i++) {
+        const p = tarde[i];
+        acumMinT += parseInt(p.tempoViagem, 10) || 0;
+        const chegadaDec = inicioT + acumMinT / 60;
+        const servMin = Math.round((Number(p.specs?.tempoServico) || 600) / 60);
+        const fimServicoDec = chegadaDec + servMin / 60;
+        if (chegadaDec > fimT || fimServicoDec > fimT) {
+            idxT = i;
+            break;
+        }
+        acumMinT += servMin;
+    }
+
+    const migradosDiaSeguinte = [];
+    if (idxT >= 0) {
+        tarde.slice(idxT).forEach((p) => {
+            p.dataEntrega = proximoDiaIso;
+            p.__migrarData = proximoDiaIso;
+            p.periodo = 'manha';
+            p.ordem = null;
+            p.tempoViagem = null;
+            p.distanciaTrecho = null;
+            p.corIcone = null;
+            p.horaPrevista = null;
+            p.status = 'pendente';
+            mudou = true;
+            migradosDiaSeguinte.push(p);
+        });
+
+        if (migradosDiaSeguinte.length > 0) {
+            const idsEntregasMigradas = new Set(migradosDiaSeguinte.map((e) => Number(e.id)));
+            entregas.forEach((c) => {
+                if (
+                    ehColeta(c)
+                    && c.coletaVinculadaId != null
+                    && idsEntregasMigradas.has(Number(c.coletaVinculadaId))
+                    && c.dataEntrega === dataFiltro
+                    && c.status !== 'concluida'
+                ) {
+                    c.status = 'pendente';
+                    delete c.ordem;
+                    delete c.tempoViagem;
+                    delete c.corIcone;
+                    c.dataEntrega = proximoDiaIso;
+                    c.__migrarData = proximoDiaIso;
+                    c.periodo = 'manha';
+                    mudou = true;
+                }
+            });
+        }
+    }
+
+    return mudou;
+}
+
+/**
+ * Se for hoje e já passou o limite de inserção da manhã, tudo que ainda está em "manhã"
+ * passa para "tarde" e persiste — assim o ORS não monta rota da manhã depois do horário da base.
+ */
+async function aplicarPromocaoManhaParaTardeSeLimitePassou(dataFiltro) {
+    const hoje = getToday();
+    if (dataFiltro !== hoje) return;
+    if (!passouLimiteInsercaoTurnoHoje(hoje, 'manha')) return;
+    const mudar = entregas.filter(
+        (e) => e.dataEntrega === hoje && e.status !== 'concluida' && e.periodo === 'manha'
+    );
+    if (mudar.length === 0) return;
+    mudar.forEach((e) => {
+        e.periodo = 'tarde';
+        if (e.corIcone) e.corIcone = '#2563eb';
+    });
+    try {
+        await atualizarRoteamentoLote(mudar);
+        await garantirAdjacenciaVinculosNoDia(hoje);
+        invalidarCachesyncRotas();
+    } catch (err) {
+        console.warn('[rotas] aplicarPromocaoManhaParaTardeSeLimitePassou', err);
+    }
+}
+
 async function otimizarRotaEValidarTempo() {
     const dataFiltro = document.getElementById('filtro-data-operacao').value;
     const btnRota = document.querySelector('.btn-route');
@@ -2137,6 +2603,10 @@ async function otimizarRotaEValidarTempo() {
         delete e.corIcone;
     });
 
+    // Depois de limpar a sequência anterior: se já passou o limite de inserção da manhã,
+    // nada pode continuar como turno da manhã para hoje (alinha com ORS skills + regra da base).
+    await aplicarPromocaoManhaParaTardeSeLimitePassou(dataFiltro);
+
     // Coletas VINCULADAS são retiradas da otimização: elas são inseridas
     // manualmente logo antes da entrega-alvo (pickup→delivery) depois que
     // o ORS planeja as rotas. Isso evita que o ORS separe a dupla em
@@ -2150,11 +2620,13 @@ async function otimizarRotaEValidarTempo() {
         if (e.coords && !isNaN(e.coords[0]) && !isNaN(e.coords[1])) {
             const safeId = index + 1;
             idMap.set(safeId, e.id);
+            const skillTurno = e.periodo === 'tarde' ? [2] : [1];
             jobs.push({
                 id: safeId,
                 location: [parseFloat(e.coords[0]), parseFloat(e.coords[1])],
                 service: parseInt(e.specs?.tempoServico || 600),
-                delivery: [Math.min(500, Math.ceil(parseFloat(e.specs?.peso || 0)))]
+                delivery: [Math.min(500, Math.ceil(parseFloat(e.specs?.peso || 0)))],
+                skills: skillTurno
             });
         }
     });
@@ -2185,7 +2657,8 @@ async function otimizarRotaEValidarTempo() {
             profile: 'driving-car',
             start: [parseFloat(LOJA_COORDS[0]), parseFloat(LOJA_COORDS[1])],
             capacity: [cap],
-            time_window: [0, Math.max(3600, Math.round(duracaoTurnoManhaSec))]
+            time_window: [0, Math.max(3600, Math.round(duracaoTurnoManhaSec))],
+            skills: [1]
         });
         slotTurno.set(idManha, 'manha');
         const idTarde = vehicles.length + 1;
@@ -2194,7 +2667,8 @@ async function otimizarRotaEValidarTempo() {
             profile: 'driving-car',
             start: [parseFloat(LOJA_COORDS[0]), parseFloat(LOJA_COORDS[1])],
             capacity: [cap],
-            time_window: [0, Math.max(3600, Math.round(duracaoTurnoTardeSec))]
+            time_window: [0, Math.max(3600, Math.round(duracaoTurnoTardeSec))],
+            skills: [2]
         });
         slotTurno.set(idTarde, 'tarde');
     });
@@ -2403,6 +2877,30 @@ async function otimizarRotaEValidarTempo() {
                 if (alteradosEta.length > 0) {
                     try { await atualizarRoteamentoLote(alteradosEta); } catch (e) {}
                 }
+            }
+            // 5) Estouro no relógio do turno: excedentes da manhã → tarde (mesmo dia); tarde → dia seguinte.
+            const mudouRedist = await redistribuirEstouroJanelaTurno(dataFiltro);
+            if (mudouRedist) {
+                const alvos = entregas.filter((e) => e.id && (e.dataEntrega === dataFiltro || e.__migrarData));
+                try {
+                    await atualizarRoteamentoLote(alvos);
+                } catch (e) {
+                    console.warn('[rotas] persist redistribuirEstouroJanelaTurno', e);
+                }
+                alvos.forEach((p) => { if (p.__migrarData) delete p.__migrarData; });
+                try {
+                    await recalcularDistanciasManuais({ silent: true });
+                } catch (e) { /* noop */ }
+                const alteradosEtaRedist = [
+                    ...recalcularEtaTurno(dataFiltro, 'manha'),
+                    ...recalcularEtaTurno(dataFiltro, 'tarde')
+                ];
+                if (alteradosEtaRedist.length > 0) {
+                    try { await atualizarRoteamentoLote(alteradosEtaRedist); } catch (e) {}
+                }
+                try {
+                    await garantirAdjacenciaVinculosNoDia(dataFiltro);
+                } catch (e) { /* noop */ }
             }
             renderizarListaSimples({ preservarViewport: false });
             await tracarRotasNasRuas();

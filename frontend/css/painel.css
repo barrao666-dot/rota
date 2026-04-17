@@ -19,7 +19,8 @@ body {
 }
 .dashboard-shell {
     width: min(1380px, calc(100vw - 32px));
-    height: calc(100vh - 32px);
+    height: min(calc(100vh - 32px), 100vh);
+    max-height: calc(100vh - 32px);
     margin: 16px auto;
     display: grid;
     grid-template-columns: 260px 1fr;
@@ -32,6 +33,7 @@ body {
 .sidebar {
     display: flex;
     flex-direction: column;
+    min-height: 0;
     background: #ffffff;
     border-right: 1px solid var(--line);
 }
@@ -105,6 +107,9 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
     background: #f8fafc;
 }
 .topbar {
@@ -137,8 +142,12 @@ body {
     cursor: pointer;
 }
 .area-dinamica {
+    flex: 1;
+    min-height: 0;
     padding: 18px 22px 26px;
     overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
 }
 .card, .painel-lateral-rota {
     background: #ffffff;
@@ -148,6 +157,35 @@ body {
     color: #0f172a;
 }
 .card { padding: 20px; margin-bottom: 16px; }
+.card--regras-entrega { padding: 16px 18px; margin-bottom: 12px; }
+.regras-entrega-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 14px;
+    align-items: end;
+}
+@media (min-width: 1100px) {
+    .regras-entrega-grid.regras-entrega-grid--larga {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+@media (max-width: 520px) {
+    .regras-entrega-grid { grid-template-columns: 1fr; }
+}
+.regras-entrega-intro {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.45;
+    margin: 0 0 14px;
+}
+.regras-entrega-base-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.regras-entrega-base-row .input-group { margin-bottom: 0; flex: 1 1 220px; max-width: 360px; }
 .input-group { margin-bottom: 12px; }
 .input-group label { font-size: 12px; color: #334155; font-weight: 700; margin-bottom: 5px; display: block; }
 .input-group input, .input-group select, textarea {

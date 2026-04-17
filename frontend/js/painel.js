@@ -185,10 +185,6 @@ function cancelarEdicao(tipo) {
     document.querySelectorAll(`#card-form-${tipo} input, #card-form-${tipo} textarea`).forEach(i => { i.value = ''; });
     document.querySelectorAll(`#card-form-${tipo} select`).forEach(i => { i.value = ''; });
     if (tipo === 'base') {
-        const cm = document.getElementById('base-corte-manha');
-        const ct = document.getElementById('base-corte-tarde');
-        if (cm) cm.value = '09:00';
-        if (ct) ct.value = '14:00';
         const lbl = document.getElementById('base-rua-label');
         if (lbl) lbl.innerText = 'Rua / Avenida / Logradouro';
         const g = document.getElementById('base-grid-cep-log');
@@ -461,11 +457,10 @@ function mudarAba(abaDestino) {
                     <div class="input-group"><label>Cidade</label><input type="text" id="base-cidade"></div>
                     <div class="input-group"><label>UF</label><input type="text" id="base-uf" maxlength="2"></div>
                 </div>
-                <h4 class="sessao-titulo" style="margin-top: 15px; color: #ea580c; border-bottom: 1px solid #eee; padding-bottom: 5px;">⏰ Horários Limite (Corte de Expedição)</h4>
-                <div class="grid-2">
-                    <div class="input-group"><label>Corte da Manhã</label><input type="time" id="base-corte-manha" value="09:00"></div>
-                    <div class="input-group"><label>Corte da Tarde</label><input type="time" id="base-corte-tarde" value="14:00"></div>
-                </div>
+                <p class="base-only-address-hint" style="margin:14px 0 0;font-size:13px;color:#64748b;line-height:1.45;">
+                    <strong>Horários de turno, corte de expedição e virada do dia</strong> ficam em
+                    <strong>Regras de entrega (turnos)</strong> — este cadastro é só o <strong>ponto de partida</strong> no mapa.
+                </p>
                 <div style="display: flex; margin-top: 10px;">
                     <button id="btn-salvar-base" class="btn-acao" onclick="salvarBase()">Salvar Base</button>
                     <button id="btn-cancelar-base" class="btn-cancelar" onclick="cancelarEdicao('base')" style="margin-left: 10px;">Cancelar</button>
@@ -477,6 +472,48 @@ function mudarAba(abaDestino) {
             </div>
         `;
         carregarBases();
+    }
+    else if (abaDestino === 'regras-entrega') {
+        titulo.innerText = 'Regras de entrega por turno';
+        area.innerHTML = `
+            <div class="card card--regras-entrega">
+                <h3 style="margin-top:0;">Regras de entrega e expedição (por base)</h3>
+                <p class="regras-entrega-intro">
+                    Por cada <strong>base</strong>, configure quando as rotas <em>saem</em>, até quando cada turno “cabe” no planejamento,
+                    os <strong>limites de inserção por turno</strong> (manhã e tarde) e a <strong>virada</strong> do calendário.
+                    O endereço da base em si fica só em <strong>Bases operacionais</strong>.
+                    Estes horários alimentam o painel <em>Rotas</em>.
+                </p>
+                <div class="regras-entrega-base-row">
+                    <div class="input-group">
+                        <label>Base</label>
+                        <select id="regras-base-select"></select>
+                    </div>
+                    <button type="button" class="btn-acao" onclick="salvarRegrasEntregaTurno()">💾 Salvar horários</button>
+                </div>
+                <h4 class="sessao-titulo" style="margin:8px 0 10px;">Partida (saída da base por turno)</h4>
+                <div class="regras-entrega-grid">
+                    <div class="input-group"><label>Manhã</label><input type="time" id="regr-corte-manha" value="09:00"></div>
+                    <div class="input-group"><label>Tarde</label><input type="time" id="regr-corte-tarde" value="14:00"></div>
+                </div>
+                <h4 class="sessao-titulo" style="margin:14px 0 10px;">Fim da janela de entrega (turno)</h4>
+                <div class="regras-entrega-grid">
+                    <div class="input-group"><label>Fim — manhã</label><input type="time" id="regr-fim-manha" value="12:00"></div>
+                    <div class="input-group"><label>Fim — tarde</label><input type="time" id="regr-fim-tarde" value="18:00"></div>
+                </div>
+                <h4 class="sessao-titulo" style="margin:14px 0 10px;">Limite de inserção na rota (por turno)</h4>
+                <p style="margin:0 0 10px;font-size:12px;color:#64748b;">Até este horário você ainda pode incluir novos endereços <strong>naquele turno</strong> para o dia atual (digite a hora ou use o seletor). Depois do limite, novas paradas passam para o <strong>dia seguinte</strong>, salvo uso de <em>Forçar na rota</em> no painel Rotas (com confirmação).</p>
+                <div class="regras-entrega-grid">
+                    <div class="input-group"><label>Limite inserção — manhã</label><input type="time" step="60" id="regr-limite-insercao-manha" value="10:30" inputmode="numeric" title="Ex.: rota pode sair às 08:00 e ainda aceitar inclusões na manhã até este horário."></div>
+                    <div class="input-group"><label>Limite inserção — tarde</label><input type="time" step="60" id="regr-limite-insercao-tarde" value="16:00" inputmode="numeric" title="Ex.: turno da tarde pode começar às 14:00 e ainda aceitar inclusões até este horário."></div>
+                </div>
+                <h4 class="sessao-titulo" style="margin:14px 0 10px;">Fechamento do calendário</h4>
+                <div class="regras-entrega-grid">
+                    <div class="input-group"><label>Virada do dia (novos pedidos → dia seguinte)</label><input type="time" step="60" id="regr-corte-virada" value="18:30"></div>
+                </div>
+            </div>
+        `;
+        carregarRegrasEntregaTurnoUI();
     }
 }
 
@@ -928,14 +965,101 @@ function formatarHoraBase(v) {
     return s.length >= 5 ? s.slice(0, 5) : s;
 }
 
+async function carregarRegrasEntregaTurnoUI(preserveBaseId) {
+    const sel = document.getElementById('regras-base-select');
+    if (!sel) return;
+    try {
+        const res = await apiFetch(`/api/bases/${empresa.id}`);
+        dbStore.bases = await res.json();
+        sel.innerHTML = '';
+        if (!dbStore.bases.length) {
+            sel.innerHTML = '<option value="">Cadastre uma base em "Bases operacionais"</option>';
+            sel.disabled = true;
+            return;
+        }
+        sel.disabled = false;
+        dbStore.bases.forEach((b) => {
+            sel.innerHTML += `<option value="${b.id}">${b.nome || 'Base ' + b.id}</option>`;
+        });
+        sel.onchange = () => preencherFormRegrasEntrega(Number(sel.value));
+        const candidato = preserveBaseId != null && dbStore.bases.some((x) => Number(x.id) === Number(preserveBaseId))
+            ? Number(preserveBaseId)
+            : Number(dbStore.bases[0].id);
+        sel.value = String(candidato);
+        preencherFormRegrasEntrega(candidato);
+    } catch (e) {
+        sel.innerHTML = '<option value="">Erro ao carregar bases</option>';
+        sel.disabled = true;
+    }
+}
+
+function preencherFormRegrasEntrega(baseId) {
+    const b = dbStore.bases.find((x) => Number(x.id) === Number(baseId));
+    if (!b) return;
+    const set = (id, val, fallback) => {
+        const el = document.getElementById(id);
+        if (el) el.value = formatarHoraBase(val || fallback);
+    };
+    set('regr-corte-manha', b.corte_manha, '09:00');
+    set('regr-corte-tarde', b.corte_tarde, '14:00');
+    set('regr-fim-manha', b.fim_turno_manha, '12:00');
+    set('regr-fim-tarde', b.fim_turno_tarde, '18:00');
+    set('regr-limite-insercao-manha', b.limite_insercao_manha || b.corte_insercao_rota, '10:30');
+    set('regr-limite-insercao-tarde', b.limite_insercao_tarde || b.corte_insercao_rota, '16:00');
+    set('regr-corte-virada', b.corte_virada_dia, '18:30');
+}
+
+async function salvarRegrasEntregaTurno() {
+    const sel = document.getElementById('regras-base-select');
+    if (!sel || sel.disabled || !sel.value) {
+        return alert('Cadastre uma base em "Bases operacionais" antes de definir os horários.');
+    }
+    const id = Number(sel.value);
+    const b = dbStore.bases.find((x) => Number(x.id) === id);
+    if (!b) return alert('Base não encontrada. Recarregue a página.');
+    const hhmm = (id, padrao) => {
+        const el = document.getElementById(id);
+        const v = el && el.value;
+        if (!v || typeof v !== 'string') return padrao;
+        return v.length >= 5 ? v.slice(0, 5) : v;
+    };
+    const body = {
+        nome: b.nome,
+        endereco: b.endereco,
+        lat: b.lat,
+        lng: b.lng,
+        corte_manha: hhmm('regr-corte-manha', '09:00'),
+        corte_tarde: hhmm('regr-corte-tarde', '14:00'),
+        fim_turno_manha: hhmm('regr-fim-manha', '12:00'),
+        fim_turno_tarde: hhmm('regr-fim-tarde', '18:00'),
+        limite_insercao_manha: hhmm('regr-limite-insercao-manha', '10:30'),
+        limite_insercao_tarde: hhmm('regr-limite-insercao-tarde', '16:00'),
+        corte_virada_dia: hhmm('regr-corte-virada', '18:30')
+    };
+    try {
+        const res = await apiFetch(`/api/bases/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (res.ok) {
+            alert('✔️ Horários salvos.');
+            await carregarRegrasEntregaTurnoUI(id);
+        } else {
+            const j = await res.json().catch(() => ({}));
+            alert(j.erro || 'Erro ao salvar.');
+        }
+    } catch (e) {
+        alert('Erro de conexão.');
+    }
+}
+
 function editarBase(id) {
     const bid = Number(id);
     const b = dbStore.bases.find((x) => Number(x.id) === bid);
     if (!b) return;
     editando.base = bid;
     document.getElementById('base-nome').value = b.nome || '';
-    document.getElementById('base-corte-manha').value = formatarHoraBase(b.corte_manha);
-    document.getElementById('base-corte-tarde').value = formatarHoraBase(b.corte_tarde || '14:00');
     const lbl = document.getElementById('base-rua-label');
     if (lbl) lbl.innerText = 'Rua / Avenida / Logradouro';
     const gCep = document.getElementById('base-grid-cep-log');
@@ -962,8 +1086,6 @@ function editarBase(id) {
 async function salvarBase() {
     const btn = document.getElementById('btn-salvar-base');
     const nome = document.getElementById('base-nome').value.trim();
-    const corteManha = document.getElementById('base-corte-manha').value || '09:00';
-    const corteTarde = document.getElementById('base-corte-tarde').value || '14:00';
 
     let enderecoFinal = '';
     let lat = null;
@@ -1041,9 +1163,7 @@ async function salvarBase() {
                     nome,
                     endereco: enderecoFinal,
                     lat,
-                    lng,
-                    corte_manha: corteManha,
-                    corte_tarde: corteTarde
+                    lng
                 })
             });
             if (res.ok) {
@@ -1099,9 +1219,7 @@ async function salvarBase() {
                 nome,
                 endereco: enderecoFinal,
                 lat,
-                lng,
-                corte_manha: corteManha,
-                corte_tarde: corteTarde
+                lng
             })
         });
         if (res.ok) {
