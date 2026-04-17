@@ -113,10 +113,32 @@ function montarUpdateRoteamento(payload) {
     }
 
     if (Object.prototype.hasOwnProperty.call(payload, 'periodo')) {
-        const periodo = String(payload.periodo || '').trim().toLowerCase();
-        if (!['manha', 'tarde'].includes(periodo)) return { erro: 'Período inválido.' };
+        const periodo = payload.periodo == null ? null : String(payload.periodo).trim().toLowerCase();
+        if (periodo !== null && !['manha', 'tarde'].includes(periodo)) return { erro: 'Período inválido.' };
         setParts.push('periodo = ?');
         values.push(periodo);
+    }
+
+    // data_entrega opcional no lote: usado pela rotina de "estouro de turno"
+    // que migra automaticamente os pontos que não couberam no dia atual para o
+    // próximo dia (regra de negócio: manhã estoura → cai na tarde; tarde
+    // estoura → cai no dia seguinte).
+    if (Object.prototype.hasOwnProperty.call(payload, 'data_entrega')) {
+        const dt = payload.data_entrega;
+        if (dt !== null && !validarDataISO(dt)) return { erro: 'Data de entrega inválida. Use YYYY-MM-DD.' };
+        setParts.push('data_entrega = ?');
+        values.push(dt === null ? null : String(dt).slice(0, 10));
+    }
+
+    // hora_prevista (HH:MM): ETA calculado pelo otimizador ORS. Persistimos
+    // pra o card mostrar o horário de chegada mesmo após F5.
+    if (Object.prototype.hasOwnProperty.call(payload, 'hora_prevista')) {
+        const hp = payload.hora_prevista;
+        if (hp !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(hp))) {
+            return { erro: 'Hora prevista inválida. Use HH:MM (00:00–23:59).' };
+        }
+        setParts.push('hora_prevista = ?');
+        values.push(hp === null ? null : String(hp));
     }
 
     if (setParts.length === 0) return { erro: 'Nenhum campo válido para atualizar.' };

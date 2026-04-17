@@ -57,7 +57,12 @@ app.use('/api/usuarios', usuariosRotas);
 const ASSETS_SEM_CACHE = new Set([
     '/operacao/rotas.html',
     '/js/rotas.js',
-    '/service-worker.js'
+    '/service-worker.js',
+    // Manifest sem cache: permite que mudanças na identidade PWA
+    // (ícones, shortcuts, theme_color) apareçam no próximo load
+    // sem obrigar o usuário a reinstalar o app.
+    '/manifest.json',
+    '/js/pwa-bootstrap.js'
 ]);
 app.use(express.static(frontendPath, {
     // Desliga o Cache-Control default do send() para que o setHeaders abaixo

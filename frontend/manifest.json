@@ -1,26 +1,59 @@
 {
-  "name": "Obralight Motorista",
-  "short_name": "Obralight",
-  "description": "Aplicativo operacional para motoristas em campo.",
-  "start_url": "/operacao/motorista.html",
+  "name": "Rota++ — Gestão Logística",
+  "short_name": "Rota++",
+  "description": "Plataforma Rota++ para roteirização, gestão de frota e operação de entregas em campo.",
+  "id": "/?pwa=1",
+  "start_url": "/index.html",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#f1f5f9",
-  "theme_color": "#333333",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "background_color": "#f8fafc",
+  "theme_color": "#0284c7",
   "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["productivity", "business", "navigation"],
   "icons": [
     {
       "src": "/icons/icon-192.svg",
       "sizes": "192x192",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/icons/icon-512.svg",
       "sizes": "512x512",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Painel da Empresa",
+      "short_name": "Empresa",
+      "description": "Abrir o painel administrativo da empresa.",
+      "url": "/empresa/painel.html",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Rotas",
+      "short_name": "Rotas",
+      "description": "Abrir o painel de rotas operacionais.",
+      "url": "/operacao/rotas.html",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Motorista",
+      "short_name": "Motorista",
+      "description": "Abrir o app operacional do motorista.",
+      "url": "/operacao/motorista.html",
+      "icons": [{ "src": "/icons/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml" }]
     }
   ]
 }

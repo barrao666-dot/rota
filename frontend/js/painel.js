@@ -6,7 +6,12 @@ let empresa = null;
 const ZOOM_BASE_OPERACIONAL = 17;
 
 let ORS_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjVhYmFhN2RiMGU0MjQ5NWJhMTI3MTEzZWJkNDAyMzc4IiwiaCI6Im11cm11cjY0In0=';
-let LOJA_COORDS = [-43.945722, -19.882352];
+// Default DELIBERADAMENTE null — antes era [-43.945722, -19.882352] (BH/MG),
+// que coincide com a base de uma empresa real. Ao trocar de empresa, o
+// painel mostrava o pino dessa cidade, dando a falsa sensação de que a
+// nova empresa "herdou" a base do cliente anterior. Quem desenhar pino
+// precisa checar se LOJA_COORDS está populado.
+let LOJA_COORDS = null;
 
 let dbStore = { usuarios: [], motoristas: [], veiculos: [], bases: [], coletas: [], regras: [] };
 let editando = { usuario: null, motorista: null, veiculo: null, base: null, coleta: null, regra: null };
@@ -498,6 +503,7 @@ function focarMapaAposGeocodeBase(lat, lng) {
 /** Atualiza centro/zoom e marcador da base quando LOJA_COORDS já está definido (ex.: API carregou após o mapa). */
 function focarMapaNaBaseCarregada() {
     if (!mapaInstancia) return;
+    if (!Array.isArray(LOJA_COORDS) || LOJA_COORDS.length < 2) return;
     const lng = Number(LOJA_COORDS[0]);
     const lat = Number(LOJA_COORDS[1]);
     if (!isFinite(lat) || !isFinite(lng)) return;
@@ -518,16 +524,26 @@ function iniciarMapa() {
         mapaInstancia = null;
     }
     marcadorBasePainel = null;
-    const lat = Number(LOJA_COORDS[1]);
-    const lng = Number(LOJA_COORDS[0]);
-    const latOk = isFinite(lat) ? lat : -19.882352;
-    const lngOk = isFinite(lng) ? lng : -43.945722;
-    mapaInstancia = L.map('mapa-container').setView([latOk, lngOk], ZOOM_BASE_OPERACIONAL);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapaInstancia);
-    marcadorBasePainel = L.marker([latOk, lngOk])
-        .addTo(mapaInstancia)
-        .bindPopup('<strong>Base Operacional</strong>')
-        .openPopup();
+    // Sem LOJA_COORDS válidas: abre o mapa centralizado no Brasil (visão larga)
+    // e sem pino de base. Quem definir as coords depois (sincronização da
+    // base via /api/bases) chama focarMapaNaBaseCarregada e desenha o pino
+    // no lugar correto. Antes usava-se um default fixo (BH/MG) que era a
+    // base real de outro cliente, dando a sensação de "base errada".
+    const temCoords = Array.isArray(LOJA_COORDS) && LOJA_COORDS.length >= 2
+        && isFinite(Number(LOJA_COORDS[0])) && isFinite(Number(LOJA_COORDS[1]));
+    if (temCoords) {
+        const lat = Number(LOJA_COORDS[1]);
+        const lng = Number(LOJA_COORDS[0]);
+        mapaInstancia = L.map('mapa-container').setView([lat, lng], ZOOM_BASE_OPERACIONAL);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapaInstancia);
+        marcadorBasePainel = L.marker([lat, lng])
+            .addTo(mapaInstancia)
+            .bindPopup('<strong>Base Operacional</strong>')
+            .openPopup();
+    } else {
+        mapaInstancia = L.map('mapa-container').setView([-15.78, -47.93], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapaInstancia);
+    }
 }
 
 function limparRotasDoMapa() {

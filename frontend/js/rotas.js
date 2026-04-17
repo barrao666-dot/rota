@@ -5,12 +5,16 @@ let CORTE_TARDE = '14:00';
 let html5QrcodeScanner = null;
 const ZOOM_BASE_OPERACIONAL_ROTAS = 17;
 
-let LOJA_COORDS = [-43.945722, -19.882352]; 
-let ENDERECO_BASE_TEXTO = "Base Operacional";
+// IMPORTANTE: nunca usar coords default fixas aqui. Antes do carregamento da
+// base da empresa, qualquer valor "esperto" parece a base real do cliente
+// anterior — e ao trocar de empresa o operador vê o pino na cidade errada.
+// Mantemos null e quem for usar precisa checar BASE_EMPRESA_OK primeiro.
+let LOJA_COORDS = null;
+let ENDERECO_BASE_TEXTO = '';
 // True quando a base ATUAL da empresa foi carregada/geocodificada com sucesso.
-// Enquanto false, não permitimos gerar rotas, porque LOJA_COORDS estaria
-// apontando para o default global (região de outra empresa), gerando
-// um ponto de partida absolutamente errado.
+// Enquanto false, não permitimos gerar rotas nem desenhar pino — caso
+// contrário, mostramos uma localização errada (de outra empresa) ou rota
+// partindo da base errada.
 let BASE_EMPRESA_OK = false;
 
 let TABELA_PRODUTOS = {}; let FROTA_VEICULOS = []; let MOTORISTAS_EQUIPE = [];
@@ -94,6 +98,7 @@ async function restaurarSnapOrdem(snap) {
 function custoHaversinePercurso(listaOrdenada) {
     const L = listaOrdenada.filter((p) => p.coords && p.coords.length >= 2 && !isNaN(p.coords[0]) && !isNaN(p.coords[1]));
     if (!L.length) return 0;
+    if (!Array.isArray(LOJA_COORDS) || LOJA_COORDS.length < 2) return 0;
     let c = calcularDistancia(LOJA_COORDS[0], LOJA_COORDS[1], L[0].coords[0], L[0].coords[1]);
     for (let k = 0; k < L.length - 1; k++) {
         c += calcularDistancia(L[k].coords[0], L[k].coords[1], L[k + 1].coords[0], L[k + 1].coords[1]);
@@ -292,6 +297,11 @@ async function garantirAdjacenciaVinculosNoDia(dataFiltro) {
             }
         });
         if (entregasAlterar.length > 0) {
+            // Recalcula ETA do turno agora que a ordem mudou (coleta injetada).
+            const etaAlterados = recalcularEtaTurno(dataFiltro, turno);
+            // Consolida: entregas com ordem OU hora_prevista alteradas.
+            const idsJaNoLote = new Set(entregasAlterar.map((x) => x.id));
+            etaAlterados.forEach((x) => { if (!idsJaNoLote.has(x.id)) entregasAlterar.push(x); });
             try {
                 await atualizarRoteamentoLote(entregasAlterar);
                 alterou = true;
@@ -311,7 +321,8 @@ async function garantirAdjacenciaVinculosNoDia(dataFiltro) {
 // Garante que coletas rejeitadas pelo ORS (normalmente por tempo do turno)
 // SEMPRE entrem na rota do dia — a regra de negócio é que coleta nunca
 // fica pendente fora da rota. Escolhe o turno que tem menos paradas e
-// adiciona ao fim dele, com a cor correta.
+// INSERE na melhor posição geográfica (cheapest insertion via Haversine)
+// pra não criar zig-zag no meio da rota já otimizada pelo ORS.
 async function forcarColetasNoTurnoMaisLeve(coletas, dataFiltro) {
     if (!coletas || coletas.length === 0) return;
 
@@ -320,19 +331,59 @@ async function forcarColetasNoTurnoMaisLeve(coletas, dataFiltro) {
         const qtdTarde = entregas.filter((e) => e.dataEntrega === dataFiltro && e.periodo === 'tarde' && e.ordem && e.status !== 'concluida').length;
         const turnoAlvo = qtdManha <= qtdTarde ? 'manha' : 'tarde';
         const cor = turnoAlvo === 'manha' ? '#16a34a' : '#2563eb';
-        const ordem = (turnoAlvo === 'manha' ? qtdManha : qtdTarde) + 1;
+
+        // Cheapest insertion: acha a posição (ordem) que minimiza o
+        // aumento de distância total. Evita jogar a coleta no fim e
+        // quebrar a proximidade construída pelo ORS.
+        const melhorOrdem = escolherMelhorOrdemInsercao(coleta, dataFiltro, turnoAlvo);
 
         coleta.periodo = turnoAlvo;
-        coleta.ordem = ordem;
+        coleta.ordem = melhorOrdem;
         coleta.corIcone = cor;
         coleta.status = 'pendente';
 
+        // Abre espaço na sequência: todo mundo >= melhorOrdem ganha +1.
+        const demais = entregas.filter((e) =>
+            e.dataEntrega === dataFiltro && e.periodo === turnoAlvo &&
+            e.status !== 'concluida' && e.id !== coleta.id && e.ordem >= melhorOrdem
+        );
+        const entregasAlterar = [coleta];
+        demais.forEach((e) => { e.ordem = (e.ordem || 0) + 1; entregasAlterar.push(e); });
+
         try {
-            await atualizarRoteamentoColeta(coleta.id, { periodo: turnoAlvo, ordem, cor_icone: cor });
+            await atualizarRoteamentoLote(entregasAlterar);
         } catch (e) {
             console.warn('Falha ao auto-forçar coleta na rota', coleta.id, e);
         }
     }
+}
+
+// Retorna a melhor ORDEM (1-based) para inserir `pacoteNovo` no turno
+// especificado, minimizando o aumento de distância em linha reta.
+// Se o pacote não tem coords válidos, retorna o fim da fila (fallback).
+function escolherMelhorOrdemInsercao(pacoteNovo, dataFiltro, turno) {
+    const existentes = entregas
+        .filter((e) => e.dataEntrega === dataFiltro && e.periodo === turno && e.ordem && e.status !== 'concluida' && e.id !== pacoteNovo.id)
+        .sort((a, b) => a.ordem - b.ordem);
+    if (existentes.length === 0) return 1;
+    const coordsNovo = pacoteNovo.coords;
+    if (!Array.isArray(coordsNovo) || coordsNovo.length < 2 || !Array.isArray(LOJA_COORDS) || LOJA_COORDS.length < 2) {
+        return existentes.length + 1;
+    }
+    // Sequência completa: base → p1 → p2 → ... → pn → base
+    const seq = [LOJA_COORDS, ...existentes.map((e) => e.coords), LOJA_COORDS];
+    let melhorPos = existentes.length + 1;
+    let melhorCusto = Infinity;
+    for (let i = 1; i < seq.length; i++) {
+        const antes = seq[i - 1];
+        const depois = seq[i];
+        // Custo extra = (antes→novo) + (novo→depois) − (antes→depois)
+        const extra = calcularDistancia(antes[0], antes[1], coordsNovo[0], coordsNovo[1])
+                    + calcularDistancia(coordsNovo[0], coordsNovo[1], depois[0], depois[1])
+                    - calcularDistancia(antes[0], antes[1], depois[0], depois[1]);
+        if (extra < melhorCusto) { melhorCusto = extra; melhorPos = i; }
+    }
+    return melhorPos;
 }
 
 // Reordena os pontos vizinhos ao item recém-movido aplicando um
@@ -577,7 +628,18 @@ function avaliarAvisosCapacidade(dataFiltro, turno, opts = {}) {
 
 function focarMapaNaBaseRotas() {
     if (!map || !Array.isArray(LOJA_COORDS) || LOJA_COORDS.length < 2) return;
-    map.setView([LOJA_COORDS[1], LOJA_COORDS[0]], ZOOM_BASE_OPERACIONAL_ROTAS);
+    const lat = parseFloat(LOJA_COORDS[1]);
+    const lng = parseFloat(LOJA_COORDS[0]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    map.setView([lat, lng], ZOOM_BASE_OPERACIONAL_ROTAS);
+    // Pino da base só é desenhado quando temos coords válidas. Substitui o
+    // anterior se já existia (ex.: após geocodificação tardia ou mudança de
+    // base) para não acumular múltiplos pinos no mapa.
+    try {
+        if (marcadorBaseRotas) { map.removeLayer(marcadorBaseRotas); }
+        const popupTxt = ENDERECO_BASE_TEXTO ? `<b>Base</b><br>${ENDERECO_BASE_TEXTO}` : '<b>Base</b>';
+        marcadorBaseRotas = L.marker([lat, lng]).addTo(map).bindPopup(popupTxt);
+    } catch (e) { /* mapa não pronto */ }
 }
 
 function aplicarRegraHorario(opts = {}) {
@@ -639,7 +701,15 @@ function aplicarRegraHorario(opts = {}) {
 
 /* Geocoding e formato de endereço: geocodificarEntregaMesmaRegraPainel, parseEnderecoSalvoPainel em /js/endereco-geocode.js */
 
-try { map = L.map('map').setView([LOJA_COORDS[1], LOJA_COORDS[0]], ZOOM_BASE_OPERACIONAL_ROTAS); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map); L.marker([LOJA_COORDS[1], LOJA_COORDS[0]]).addTo(map).bindPopup("<b>Base</b>").openPopup(); } catch(err) { }
+// Inicializa o mapa centralizado no Brasil (visão larga) e SEM pino de base.
+// O pino só é desenhado depois que carregarConfiguracoesDaEmpresa resolver
+// as coords reais — ver focarMapaNaBaseRotas. Centro=[-15.78, -47.93] (Brasília)
+// e zoom 4 mostra o país inteiro, deixando óbvio que a base ainda não carregou.
+try {
+    map = L.map('map').setView([-15.78, -47.93], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+} catch(err) { }
+let marcadorBaseRotas = null;
 
 async function sincronizarEmpresaAtual() {
     try {
@@ -1128,7 +1198,7 @@ async function carregarDados(opts = {}) {
             periodo: e.periodo || 'manha',
             ordem: e.ordem,
             status: e.status || 'pendente',
-            coords: e.lat && e.lng ? [parseFloat(e.lng), parseFloat(e.lat)] : LOJA_COORDS,
+            coords: e.lat && e.lng ? [parseFloat(e.lng), parseFloat(e.lat)] : null,
             tempoViagem: e.tempo_viagem,
             distanciaTrecho: e.distancia_km,
             corIcone: e.cor_icone,
@@ -1138,6 +1208,7 @@ async function carregarDados(opts = {}) {
             veiculo_placa: e.veiculo_placa,
             tempoViagemReal: e.tempo_viagem_real,
             tempoNoLocalReal: e.tempo_no_local_real,
+            horaPrevista: e.hora_prevista || null,
             specs: { peso: e.peso || 0, a: e.altura || 0, l: e.largura || 0, c: e.comprimento || 0, tempoServico: e.tempo_medio || 600 },
             // Quando preenchido, indica que este registro é uma COLETA atrelada
             // à entrega cujo id = coletaVinculadaId (pickup → delivery).
@@ -1284,15 +1355,70 @@ async function atualizarRoteamentoColeta(id, dados) {
 }
 
 function montarPayloadRoteamento(entrega) {
-    return {
+    const payload = {
         id: entrega.id,
         ordem: entrega.ordem ?? null,
         tempo_viagem: entrega.tempoViagem ?? null,
         distancia_km: entrega.distanciaTrecho == null ? null : Number(entrega.distanciaTrecho),
         cor_icone: entrega.corIcone ?? null,
         status: entrega.status ?? 'pendente',
-        periodo: entrega.periodo
+        periodo: entrega.periodo ?? null,
+        hora_prevista: entrega.horaPrevista || null
     };
+    // dataEntrega opcional: só enviamos quando o fluxo de "estouro de turno"
+    // precisa migrar o pacote pro próximo dia. Fora isso, o backend não altera.
+    if (entrega.__migrarData) payload.data_entrega = entrega.__migrarData;
+    return payload;
+}
+
+// Soma `segundos` ao horário base "HH:MM" e devolve "HH:MM" (wrap em 24h
+// raramente ocorre aqui, mas tratamos defensivamente).
+function somarSegundosHHMM(baseHHMM, segundos) {
+    const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(String(baseHHMM || '').trim());
+    const hBase = m ? parseInt(m[1], 10) : 9;
+    const mBase = m ? parseInt(m[2], 10) : 0;
+    const totalMin = hBase * 60 + mBase + Math.round((Number(segundos) || 0) / 60);
+    const h = Math.floor(totalMin / 60) % 24;
+    const mm = totalMin % 60;
+    return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
+// Recalcula a hora_prevista (ETA) de cada parada de um turno acumulando
+// (tempoViagem + tempoServico) ponto-a-ponto desde o início do turno.
+// Usado após reordenações manuais (subir/descer), injeção de coletas
+// vinculadas ou forçar coletas no turno mais leve — assim o ETA no card
+// sempre bate com a ordem atual. Retorna a lista de entregas que foi
+// alterada, pra facilitar persistir só o delta.
+function recalcularEtaTurno(dataFiltro, turno) {
+    const baseHHMM = turno === 'manha' ? CORTE_MANHA : CORTE_TARDE;
+    const pacotes = entregas
+        .filter((e) => e.dataEntrega === dataFiltro && e.periodo === turno && e.ordem && e.status !== 'concluida')
+        .sort((a, b) => a.ordem - b.ordem);
+    const alterados = [];
+    // Acumulador em segundos desde o início do turno.
+    let acumSeg = 0;
+    pacotes.forEach((p) => {
+        // Tempo de viagem (minutos) pra chegar NESTE ponto. Na 1ª parada,
+        // se não tiver registro, usa 0 (sai da base e a primeira parada é "já").
+        acumSeg += (Number(p.tempoViagem) || 0) * 60;
+        const novoEta = somarSegundosHHMM(baseHHMM, acumSeg);
+        if (p.horaPrevista !== novoEta) {
+            p.horaPrevista = novoEta;
+            alterados.push(p);
+        }
+        // Tempo de serviço no ponto (em segundos).
+        acumSeg += Number(p.specs?.tempoServico) || 600;
+    });
+    return alterados;
+}
+
+// Soma N dias ao YYYY-MM-DD informado (ignora fuso do browser somando em UTC).
+function somarDiasIso(dataIso, dias) {
+    if (!dataIso) return null;
+    const [y, m, d] = String(dataIso).slice(0, 10).split('-').map(Number);
+    const base = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+    base.setUTCDate(base.getUTCDate() + Number(dias || 0));
+    return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, '0')}-${String(base.getUTCDate()).padStart(2, '0')}`;
 }
 
 async function atualizarRoteamentoLote(entregasAlvo) {
@@ -1733,10 +1859,16 @@ function renderizarListaSimples(opts = {}) {
             }
         }
 
+        // Badge com hora prevista de chegada (ETA). Só aparece quando o
+        // ponto já foi roteado e tem ETA persistido.
+        const etaTxt = (e.horaPrevista && e.ordem && !isConcluida)
+            ? `<span style="margin-left:8px; font-size:11px; font-weight:700; padding:2px 6px; border-radius:4px; background:#f0f9ff; color:#0369a1; border:1px solid #bae6fd;">🕐 ETA ${e.horaPrevista}</span>`
+            : '';
+
         container.innerHTML += `<div class="card ${isConcluida ? 'concluida' : ''}" style="border-left-color: ${corBorda}; ${isColeta ? 'background:#f0f9ff;' : ''}">
             ${(e.ordem && !isConcluida) ? `<div class="badge-ordem" style="background: ${e.corIcone}">${e.ordem}º</div>` : ''}
             <strong style="font-size: 13px;">${e.nomeCliente}</strong><br><span style="font-size: 11px; color:#64748b;">${e.endereco}</span>${atribTxt}
-            <div style="margin-top:4px;"><span style="font-size: 11px; color: ${corBorda}; font-weight: bold;">📅 ${formatarData(e.dataEntrega)} | Turno: ${e.periodo==='manha'?'Manhã':'Tarde'} ${isColeta?'| [INSTRUÇÃO DE COLETA]':''}</span></div>
+            <div style="margin-top:4px;"><span style="font-size: 11px; color: ${corBorda}; font-weight: bold;">📅 ${formatarData(e.dataEntrega)} | Turno: ${e.periodo==='manha'?'Manhã':'Tarde'} ${isColeta?'| [INSTRUÇÃO DE COLETA]':''}</span>${etaTxt}</div>
             ${vinculoTxt}
             <table class="specs-table">
                 <tr><td>📦 Cat: <b>${nomeTamanhoLabel}</b></td><td>⚖️ Peso: <b>${e.specs?.peso || 0} kg</b></td></tr>
@@ -1803,25 +1935,37 @@ async function otimizarRotaEValidarTempo() {
     const duracaoTurnoManhaSec = Math.max(0, (fimDoTurnoDecimal('manha') - horaParaDecimal(CORTE_MANHA, 9)) * 3600);
     const duracaoTurnoTardeSec = Math.max(0, (fimDoTurnoDecimal('tarde') - horaParaDecimal(CORTE_TARDE, 14)) * 3600);
 
-    let vehicles = [];
-    if (FROTA_VEICULOS.length > 0) {
-        FROTA_VEICULOS.forEach((v, idx) => {
-            // idx 0 -> manhã, idx 1 -> tarde, demais reaproveitam janela da tarde.
-            const janela = idx === 0 ? duracaoTurnoManhaSec : duracaoTurnoTardeSec;
-            vehicles.push({
-                id: idx + 1,
-                profile: 'driving-car',
-                start: [parseFloat(LOJA_COORDS[0]), parseFloat(LOJA_COORDS[1])],
-                capacity: [Math.ceil(parseFloat(v.capacidade_peso || 500))],
-                time_window: [0, Math.max(3600, Math.round(janela))]
-            });
+    // IMPORTANTE: CADA veículo físico gera DOIS slots no ORS — 1 para a
+    // manhã e 1 para a tarde do mesmo dia. Modelar só "veículo 1 = manhã /
+    // veículo 2 = tarde" fazia com que uma frota com 1 caminhão só rodasse
+    // manhã e jogasse a sobra pro dia seguinte (bug reportado). Com dois
+    // slots por veículo, o ORS só empurra pra próxima data quando realmente
+    // esgotou manhã E tarde do dia atual.
+    const vehicles = [];
+    const slotTurno = new Map();
+    const capsFrota = FROTA_VEICULOS.length > 0
+        ? FROTA_VEICULOS.map((v) => Math.ceil(parseFloat(v.capacidade_peso || 500)))
+        : [500];
+    capsFrota.forEach((cap) => {
+        const idManha = vehicles.length + 1;
+        vehicles.push({
+            id: idManha,
+            profile: 'driving-car',
+            start: [parseFloat(LOJA_COORDS[0]), parseFloat(LOJA_COORDS[1])],
+            capacity: [cap],
+            time_window: [0, Math.max(3600, Math.round(duracaoTurnoManhaSec))]
         });
-    } else {
-        vehicles = [
-            { id: 1, profile: 'driving-car', start: [parseFloat(LOJA_COORDS[0]), parseFloat(LOJA_COORDS[1])], capacity: [500], time_window: [0, Math.max(3600, Math.round(duracaoTurnoManhaSec))] },
-            { id: 2, profile: 'driving-car', start: [parseFloat(LOJA_COORDS[0]), parseFloat(LOJA_COORDS[1])], capacity: [500], time_window: [0, Math.max(3600, Math.round(duracaoTurnoTardeSec))] }
-        ];
-    }
+        slotTurno.set(idManha, 'manha');
+        const idTarde = vehicles.length + 1;
+        vehicles.push({
+            id: idTarde,
+            profile: 'driving-car',
+            start: [parseFloat(LOJA_COORDS[0]), parseFloat(LOJA_COORDS[1])],
+            capacity: [cap],
+            time_window: [0, Math.max(3600, Math.round(duracaoTurnoTardeSec))]
+        });
+        slotTurno.set(idTarde, 'tarde');
+    });
 
     let calculando = false;
     try {
@@ -1850,6 +1994,11 @@ async function otimizarRotaEValidarTempo() {
         // clique de "Forçar". Assim a coleta NUNCA fica pendurada fora da
         // rota do dia, como pede a regra de negócio.
         const coletasForcadasDeUnassigned = [];
+        // Pacotes que vão ser empurrados pro dia seguinte pela regra de
+        // estouro de turno (o ORS não conseguiu encaixar nem na manhã nem
+        // na tarde → o dia inteiro lotou → migra a sobra pro próximo dia).
+        const entregasMigradasProximoDia = [];
+        const proximoDiaIso = somarDiasIso(dataFiltro, 1);
         if (result.unassigned && result.unassigned.length > 0) {
             // Heurística de motivo real: comparamos peso individual de cada
             // job rejeitado com a MAIOR capacidade de peso disponível na frota.
@@ -1860,8 +2009,7 @@ async function otimizarRotaEValidarTempo() {
             const capacidadeTotalFrota = vehicles.reduce((s, v) => s + ((v.capacity && v.capacity[0]) || 0), 0);
             const excedeFrotaNoTotal = capacidadeTotalFrota > 0 && pesoTotalJobs > capacidadeTotalFrota;
 
-            const pacotesProximos = [];
-            let teveExcessoPeso = false;
+            const pacotesPesoIndividualPendentes = [];
             result.unassigned.forEach((itemRejeitado) => {
                 const realId = idMap.get(itemRejeitado.id);
                 if (!realId) return;
@@ -1870,58 +2018,110 @@ async function otimizarRotaEValidarTempo() {
 
                 const pesoItem = Math.ceil(parseFloat(pacoteNaBase.specs?.peso || 0));
                 const excedePesoItem = maiorCapacidadeFrota > 0 && pesoItem > maiorCapacidadeFrota;
-                const motivo = excedePesoItem
-                    ? `peso ${pesoItem}kg > capacidade`
-                    : (excedeFrotaNoTotal ? 'frota sem capacidade total para todos' : 'tempo do turno esgotado');
-                if (excedePesoItem || excedeFrotaNoTotal) teveExcessoPeso = true;
 
                 pacoteNaBase.status = 'pendente';
                 delete pacoteNaBase.ordem;
                 delete pacoteNaBase.tempoViagem;
                 delete pacoteNaBase.corIcone;
 
-                // Coleta sem peso nunca deve ficar pendente — empurra para o turno
-                // mais leve e incluir na rota do dia. Peso real excedido não:
-                // não temos como colocar num veículo que não comporta.
+                // COLETA sem peso → entra forçada no turno mais leve (mantém
+                // o comportamento atual: coleta sempre roda no dia).
                 if (ehColeta(pacoteNaBase) && !excedePesoItem) {
                     coletasForcadasDeUnassigned.push(pacoteNaBase);
                     return;
                 }
 
-                const ident = pacoteNaBase.nomeCliente
-                    ? pacoteNaBase.nomeCliente
-                    : pacoteNaBase.endereco.substring(0, 30) + '...';
-                pacotesProximos.push(`📍 ${ident} — ${motivo}`);
+                // ENTREGA com peso individual maior que o maior veículo da
+                // frota → empurrar pro dia seguinte não resolve (o veículo
+                // não muda). Fica pendente com aviso pro operador.
+                if (excedePesoItem) {
+                    const ident = pacoteNaBase.nomeCliente ? pacoteNaBase.nomeCliente : (pacoteNaBase.endereco || '').substring(0, 30) + '...';
+                    pacotesPesoIndividualPendentes.push(`📍 ${ident} — peso ${pesoItem}kg > capacidade`);
+                    return;
+                }
+
+                // Demais rejeições (tempo do turno esgotado ou soma da
+                // frota sem capacidade total) → MIGRA PRO PRÓXIMO DIA.
+                // Regra: "manhã estoura → cai na tarde" (o ORS já faz isso
+                // sozinho distribuindo entre veículo manhã/tarde). "Tarde
+                // estoura → vai pro dia seguinte" (é o caso aqui, já que
+                // nem tarde coube).
+                delete pacoteNaBase.periodo;
+                delete pacoteNaBase.distanciaTrecho;
+                pacoteNaBase.dataEntrega = proximoDiaIso;
+                pacoteNaBase.__migrarData = proximoDiaIso;
+                entregasMigradasProximoDia.push(pacoteNaBase);
             });
 
-            if (pacotesProximos.length > 0) {
+            if (pacotesPesoIndividualPendentes.length > 0) {
                 temExcesso = true;
-                const cabecalho = teveExcessoPeso
-                    ? '⚠️ ALGUNS PONTOS FICARAM FORA DA ROTA (capacidade de peso insuficiente)'
-                    : '⚠️ ALGUNS PONTOS FICARAM FORA DA ROTA (janela do turno esgotada)';
                 const msgPopUp =
-                    `${cabecalho}\n\n` +
+                    '⚠️ ALGUNS PONTOS FICARAM FORA DA ROTA (capacidade de peso insuficiente)\n\n' +
                     'Itens pendentes (permanecem na lista para atuação manual):\n\n' +
-                    pacotesProximos.join('\n') +
-                    '\n\nDicas para incluir:\n' +
-                    (teveExcessoPeso
-                        ? '• Troque por um veículo de maior capacidade;\n'
-                        : '• Distribua entre manhã e tarde (botão 🔄 Mover Turno);\n') +
-                    '• Se quiser ignorar o limite, use "⚠️ Forçar (Manhã/Tarde)" no card.';
-                setTimeout(() => {
-                    alert(msgPopUp);
-                }, 500);
-                avisoExcesso = teveExcessoPeso
-                    ? '⚠️ Itens fora da rota: peso excede a capacidade do veículo.'
-                    : '⏱️ Itens fora da rota: janela do turno esgotada.';
+                    pacotesPesoIndividualPendentes.join('\n') +
+                    '\n\nDica: troque por um veículo de maior capacidade, ou\n' +
+                    'use "⚠️ Forçar (Manhã/Tarde)" no card se quiser ignorar o limite.';
+                setTimeout(() => { alert(msgPopUp); }, 500);
+                avisoExcesso = '⚠️ Itens fora da rota: peso excede a capacidade do veículo.';
+            }
+
+            // REGRA DO VÍNCULO: toda coleta_vinculada_id que aponta para uma
+            // entrega migrada TEM que ir junto pro próximo dia. Caso contrário,
+            // a coleta fica sem rota no dia atual (entrega-pai saiu) e vira
+            // órfã. Buscamos coletas vinculadas na data atual e migramos juntas.
+            if (entregasMigradasProximoDia.length > 0) {
+                const idsEntregasMigradas = new Set(entregasMigradasProximoDia.map((e) => Number(e.id)));
+                const coletasVincMigrar = entregas.filter((c) =>
+                    ehColeta(c)
+                    && c.coletaVinculadaId != null
+                    && idsEntregasMigradas.has(Number(c.coletaVinculadaId))
+                    && c.dataEntrega === dataFiltro
+                    && c.status !== 'concluida'
+                );
+                coletasVincMigrar.forEach((c) => {
+                    c.status = 'pendente';
+                    delete c.ordem;
+                    delete c.tempoViagem;
+                    delete c.corIcone;
+                    delete c.periodo;
+                    delete c.distanciaTrecho;
+                    c.dataEntrega = proximoDiaIso;
+                    c.__migrarData = proximoDiaIso;
+                    entregasMigradasProximoDia.push(c);
+                });
             }
         }
+
+        // Helper local: mensagem amigável da migração do dia.
+        const dataBr = (iso) => {
+            if (!iso) return '';
+            const [y, m, d] = iso.split('-');
+            return `${d}/${m}/${y}`;
+        };
+        const avisarMigracaoProximoDia = () => {
+            if (entregasMigradasProximoDia.length === 0) return;
+            const linhas = entregasMigradasProximoDia.map((p) => {
+                const ident = p.nomeCliente ? p.nomeCliente : (p.endereco || '').substring(0, 40) + '...';
+                return `➡️ ${ident}`;
+            }).join('\n');
+            setTimeout(() => {
+                alert(
+                    `📅 ${entregasMigradasProximoDia.length} ponto(s) transferido(s) para ${dataBr(proximoDiaIso)}\n\n` +
+                    'Motivo: a janela do turno da tarde esgotou — não havia tempo/capacidade para rodar hoje.\n\n' +
+                    'Itens migrados (agora na fila do dia seguinte):\n\n' + linhas
+                );
+            }, 700);
+        };
 
         if (result.routes && result.routes.length > 0) {
             for (const route of result.routes) {
                 const coresFixas = ['#16a34a', '#2563eb', '#f59e0b', '#9333ea', '#ef4444'];
                 const corDaRota = coresFixas[(route.vehicle - 1) % coresFixas.length];
-                const novoTurno = route.vehicle === 1 ? 'manha' : 'tarde';
+                // Turno vem do mapa slotTurno (cada veículo físico gera slot manhã + tarde).
+                const novoTurno = slotTurno.get(route.vehicle) || 'manha';
+                // Horário-base do turno: ETA = baseTurno + step.arrival_sec.
+                // step.arrival vem em segundos desde o "time 0" do veículo.
+                const baseTurnoHHMM = novoTurno === 'manha' ? CORTE_MANHA : CORTE_TARDE;
                 let contador = 1;
                 let tempoAnt = route.steps[0].arrival;
                 let distAnt = route.steps[0].distance || 0;
@@ -1934,6 +2134,7 @@ async function otimizarRotaEValidarTempo() {
                             pReal.ordem = contador;
                             pReal.corIcone = corDaRota;
                             pReal.periodo = novoTurno;
+                            pReal.horaPrevista = somarSegundosHHMM(baseTurnoHHMM, step.arrival);
                             contador++;
                         }
                     }
@@ -1942,8 +2143,10 @@ async function otimizarRotaEValidarTempo() {
                 });
             }
             invalidarCachesyncRotas();
-            // 1) Persiste o que o ORS decidiu (ordem/periodo para entregas).
+            // 1) Persiste o que o ORS decidiu (ordem/periodo/dataEntrega das migradas).
             await atualizarRoteamentoLote(entregasAlvo);
+            // Limpa marker __migrarData depois de persistir para não vazar em futuros PATCHs.
+            entregasMigradasProximoDia.forEach((p) => { delete p.__migrarData; });
             // 2) Coletas rejeitadas pelo ORS por tempo são auto-incluídas no
             //    turno mais leve. Regra de negócio: coleta sempre entra na rota
             //    do dia; usuário não precisa mais clicar em "Forçar".
@@ -1953,24 +2156,49 @@ async function otimizarRotaEValidarTempo() {
             // 3) Reposiciona coletas vinculadas imediatamente antes de suas
             //    entregas, independente do que o ORS decidiu.
             await garantirAdjacenciaVinculosNoDia(dataFiltro);
+            // 4) Se houve injeção manual (coletas forçadas ou vinculadas),
+            //    as novas paradas estão sem tempo/distância reais. Recalcula
+            //    via ORS driving-car pra atualizar tempoViagem/distanciaTrecho,
+            //    depois recomputa ETA acumulado do turno.
+            const houveInjecao = coletasForcadasDeUnassigned.length > 0
+                || entregas.some((e) => e.dataEntrega === dataFiltro && ehColeta(e) && e.coletaVinculadaId != null && e.ordem);
+            if (houveInjecao) {
+                try { await recalcularDistanciasManuais({ silent: true }); } catch (e) {}
+                const alteradosEta = [
+                    ...recalcularEtaTurno(dataFiltro, 'manha'),
+                    ...recalcularEtaTurno(dataFiltro, 'tarde')
+                ];
+                if (alteradosEta.length > 0) {
+                    try { await atualizarRoteamentoLote(alteradosEta); } catch (e) {}
+                }
+            }
             renderizarListaSimples({ preservarViewport: false });
             await tracarRotasNasRuas();
+            avisarMigracaoProximoDia();
+            // Mensagem de status final: prioriza alerta de peso, depois migração,
+            // depois coletas forçadas, senão sucesso pleno.
             if (temExcesso) mostrarErro(avisoExcesso);
-            else if (coletasForcadasDeUnassigned.length > 0) {
+            else if (entregasMigradasProximoDia.length > 0) {
+                mostrarSucesso(`✔️ Rota gerada. ${entregasMigradasProximoDia.length} ponto(s) transferido(s) para ${dataBr(proximoDiaIso)}.`);
+            } else if (coletasForcadasDeUnassigned.length > 0) {
                 mostrarSucesso(`✔️ Rota gerada. ${coletasForcadasDeUnassigned.length} coleta(s) incluída(s) automaticamente no turno mais leve.`);
             } else {
                 mostrarSucesso('✔️ Rota validada com sucesso! Coletas incluídas.');
             }
-        } else if (temExcesso || coletasForcadasDeUnassigned.length > 0) {
+        } else if (temExcesso || coletasForcadasDeUnassigned.length > 0 || entregasMigradasProximoDia.length > 0) {
             invalidarCachesyncRotas();
             await atualizarRoteamentoLote(entregasAlvo);
+            entregasMigradasProximoDia.forEach((p) => { delete p.__migrarData; });
             if (coletasForcadasDeUnassigned.length > 0) {
                 await forcarColetasNoTurnoMaisLeve(coletasForcadasDeUnassigned, dataFiltro);
             }
             await garantirAdjacenciaVinculosNoDia(dataFiltro);
             renderizarListaSimples({ preservarViewport: false });
             await tracarRotasNasRuas();
-            if (coletasForcadasDeUnassigned.length > 0 && !temExcesso) {
+            avisarMigracaoProximoDia();
+            if (entregasMigradasProximoDia.length > 0 && !temExcesso) {
+                mostrarSucesso(`✔️ ${entregasMigradasProximoDia.length} ponto(s) transferido(s) para ${dataBr(proximoDiaIso)} (turno da tarde esgotado).`);
+            } else if (coletasForcadasDeUnassigned.length > 0 && !temExcesso) {
                 mostrarSucesso(`✔️ ${coletasForcadasDeUnassigned.length} coleta(s) incluída(s) automaticamente no turno mais leve.`);
             } else {
                 mostrarErro('Todos os pacotes ultrapassam os limites e ficaram pendentes.');
@@ -1992,18 +2220,26 @@ async function otimizarRotaEValidarTempo() {
     }
 }
 
-async function recalcularDistanciasManuais() {
-    const dataFiltro = document.getElementById('filtro-data-operacao').value; document.getElementById('status-nuvem').innerText = '⏳ Calculando...'; let alterou = false;
+async function recalcularDistanciasManuais(opts = {}) {
+    const silent = !!opts.silent;
+    if (!BASE_EMPRESA_OK) {
+        if (!silent) mostrarErro('Configure a base de partida desta empresa antes de recalcular.');
+        return;
+    }
+    const dataFiltro = document.getElementById('filtro-data-operacao').value;
+    if (!silent) { const el = document.getElementById('status-nuvem'); if (el) el.innerText = '⏳ Calculando...'; }
+    let alterou = false;
     for (const turno of ['manha', 'tarde']) {
-        const pacotes = entregas.filter(e => e.dataEntrega === dataFiltro && e.periodo === turno && e.ordem && e.status !== 'concluida').sort((a,b) => a.ordem - b.ordem);
+        const pacotes = entregas.filter(e => e.dataEntrega === dataFiltro && e.periodo === turno && e.ordem && e.status !== 'concluida' && Array.isArray(e.coords) && e.coords.length === 2).sort((a,b) => a.ordem - b.ordem);
         if (pacotes.length > 0) {
             try { const coords = [LOJA_COORDS, ...pacotes.map(p => p.coords)]; const r = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/json', { method: 'POST', headers: { 'Authorization': ORS_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: coords }) }); const data = await r.json(); if (data.routes && data.routes.length > 0) { const segments = data.routes[0].segments; pacotes.forEach((p, index) => { if (segments[index]) { p.distanciaTrecho = (segments[index].distance / 1000).toFixed(1); p.tempoViagem = Math.round(segments[index].duration / 60); alterou = true; } }); } } catch(e) { }
         }
     }
     if (alterou) {
         const alterados = entregas.filter(e => e.dataEntrega === dataFiltro && e.ordem && e.status !== 'concluida');
-        await atualizarRoteamentoLote(alterados); renderizarListaSimples(); tracarRotasNasRuas(); mostrarSucesso("Distâncias recaluladas!");
-    } else mostrarErro("Sem rotas validadas.");
+        await atualizarRoteamentoLote(alterados);
+        if (!silent) { renderizarListaSimples(); tracarRotasNasRuas(); mostrarSucesso("Distâncias recaluladas!"); }
+    } else if (!silent) mostrarErro("Sem rotas validadas.");
 }
 
 async function recalcularTurnoAposMudancaManual(dataFiltro, turno) {
@@ -2045,6 +2281,9 @@ function limparRotasDoMapa() {
 }
 async function tracarRotasNasRuas(opts = {}) {
     const fromPoll = !!opts.fromPoll;
+    // Sem base resolvida não dá pra desenhar rotas (LOJA_COORDS == null
+    // quebraria o JSON enviado ao ORS). Sai limpo, sem alertas.
+    if (!BASE_EMPRESA_OK || !Array.isArray(LOJA_COORDS) || LOJA_COORDS.length < 2) return;
     const d = document.getElementById('filtro-data-operacao').value;
     const sigLinhas = assinaturaLinhasRota(d);
     if (fromPoll && rotasPollSubtleLigado() && sigLinhas === ultimaAssinaturaLinhasRota) return;

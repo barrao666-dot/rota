@@ -1,9 +1,19 @@
-const CACHE_NAME = 'obralight-motorista-v4';
+const CACHE_NAME = 'rota-pp-pwa-v5';
 const APP_SHELL = [
+    '/index.html',
+    '/empresa/index.html',
+    '/empresa/painel.html',
     '/operacao/motorista.html',
     '/css/motorista.css',
+    '/css/login.css',
+    '/css/painel.css',
+    '/css/dashboard.css',
     '/js/api-client.js',
     '/js/motorista.js',
+    '/js/login.js',
+    '/js/painel.js',
+    '/js/footer-rfs.js',
+    '/js/pwa-bootstrap.js',
     '/manifest.json',
     '/icons/icon-192.svg',
     '/icons/icon-512.svg',
