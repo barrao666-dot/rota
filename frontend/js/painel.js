@@ -5,6 +5,13 @@ let layersLinhas = [];
 let empresa = null;
 const ZOOM_BASE_OPERACIONAL = 17;
 
+// Rastreamento em tempo real: precisa estar DECLARADO no topo porque
+// iniciarMapa() pode ser chamada no bootstrap (linha ~77) antes que o
+// interpretador alcance a definição do bloco abaixo. Usar const aqui
+// daria TDZ ("Cannot access before initialization").
+const marcadoresMotoristasPainel = new Map();
+let timerMotoristasPainel = null;
+
 let ORS_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjVhYmFhN2RiMGU0MjQ5NWJhMTI3MTEzZWJkNDAyMzc4IiwiaCI6Im11cm11cjY0In0=';
 // Default DELIBERADAMENTE null — antes era [-43.945722, -19.882352] (BH/MG),
 // que coincide com a base de uma empresa real. Ao trocar de empresa, o
@@ -518,11 +525,91 @@ function focarMapaNaBaseCarregada() {
     }
 }
 
+// ===== Rastreamento em tempo real dos motoristas no painel gerencial =====
+// Mesmo comportamento do /operacao/rotas.html: polling de 10s em
+// /api/coletas/posicao/motoristas desenhando pinos pulsantes no mapa.
+// As variáveis marcadoresMotoristasPainel/timerMotoristasPainel estão no
+// topo do arquivo para evitar TDZ quando iniciarMapa() roda no bootstrap.
+function tempoAtrasPainel(iso) {
+    if (!iso) return '-';
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return '-';
+    const s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    if (s < 60) return `há ${s}s`;
+    const m = Math.round(s / 60);
+    if (m < 60) return `há ${m} min`;
+    return `há ${Math.round(m / 60)} h`;
+}
+
+async function atualizarMotoristasPainel() {
+    if (!mapaInstancia) return;
+    let lista;
+    try {
+        const resp = await apiFetch('/api/coletas/posicao/motoristas');
+        if (!resp.ok) return;
+        lista = await resp.json();
+    } catch (err) { return; }
+    if (!Array.isArray(lista)) return;
+
+    const vistos = new Set();
+    lista.forEach((m) => {
+        const uid = Number(m.usuario_id);
+        const lat = parseFloat(m.lat);
+        const lng = parseFloat(m.lng);
+        if (!uid || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        vistos.add(uid);
+
+        const nome = m.nome || m.login || `Motorista #${uid}`;
+        const vel = m.velocidade != null ? `${(Number(m.velocidade) * 3.6).toFixed(1)} km/h` : '-';
+        const precisao = m.precisao != null ? `${Math.round(Number(m.precisao))} m` : '-';
+        const popupHtml = `
+            <div style="min-width:180px">
+                <strong style="font-size:14px">🚚 ${nome}</strong><br>
+                <span style="color:#475569;font-size:12px">Velocidade: ${vel}</span><br>
+                <span style="color:#475569;font-size:12px">Precisão: ${precisao}</span><br>
+                <span style="color:#64748b;font-size:11px">Atualizado ${tempoAtrasPainel(m.atualizado_em)}</span>
+            </div>`;
+
+        if (marcadoresMotoristasPainel.has(uid)) {
+            const mk = marcadoresMotoristasPainel.get(uid);
+            mk.setLatLng([lat, lng]);
+            if (mk.getPopup()) mk.getPopup().setContent(popupHtml);
+        } else {
+            const icon = L.divIcon({
+                className: 'motorista-live-pin',
+                html: '<div class="pulse"></div><div class="dot">🚚</div>',
+                iconSize: [36, 36],
+                iconAnchor: [18, 18]
+            });
+            const mk = L.marker([lat, lng], { icon, zIndexOffset: 1000 })
+                .addTo(mapaInstancia)
+                .bindPopup(popupHtml);
+            marcadoresMotoristasPainel.set(uid, mk);
+        }
+    });
+
+    for (const [uid, mk] of marcadoresMotoristasPainel.entries()) {
+        if (!vistos.has(uid)) {
+            try { mapaInstancia.removeLayer(mk); } catch (_) {}
+            marcadoresMotoristasPainel.delete(uid);
+        }
+    }
+}
+
+function iniciarRastreamentoMotoristasPainel() {
+    if (timerMotoristasPainel) clearInterval(timerMotoristasPainel);
+    atualizarMotoristasPainel();
+    timerMotoristasPainel = setInterval(atualizarMotoristasPainel, 10000);
+}
+
 function iniciarMapa() {
     if (mapaInstancia !== null) {
         mapaInstancia.remove();
         mapaInstancia = null;
     }
+    // Limpa pinos de motoristas antigos: serão recriados pelo polling em
+    // seguida, mas no mapa novo (Leaflet descarta layers do mapa antigo).
+    marcadoresMotoristasPainel.clear();
     marcadorBasePainel = null;
     // Sem LOJA_COORDS válidas: abre o mapa centralizado no Brasil (visão larga)
     // e sem pino de base. Quem definir as coords depois (sincronização da
@@ -544,6 +631,7 @@ function iniciarMapa() {
         mapaInstancia = L.map('mapa-container').setView([-15.78, -47.93], 4);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapaInstancia);
     }
+    iniciarRastreamentoMotoristasPainel();
 }
 
 function limparRotasDoMapa() {
@@ -582,11 +670,26 @@ async function carregarRotasDoGestor() {
 
         const validCoords = pacotes.filter(p => p.lat && p.lng).map(p => [p.lng, p.lat]);
         if(validCoords.length > 0) {
-            const corLinha = pacotes[0].cor_icone || '#0284c7';
-            const r = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', { method: 'POST', headers: { 'Authorization': ORS_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: [LOJA_COORDS, ...validCoords, LOJA_COORDS] }) });
-            layersLinhas.push(L.geoJSON(await r.json(), { style: { color: corLinha, weight: 6, opacity: 0.6 } }).addTo(mapaInstancia));
+            try {
+                const corLinha = pacotes[0].cor_icone || '#0284c7';
+                const r = await apiFetch('/api/ors/directions/driving-car/geojson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: [LOJA_COORDS, ...validCoords, LOJA_COORDS] }) });
+                if (r.ok) {
+                    const gj = await r.json();
+                    // Só desenha se veio GeoJSON válido (evita travar tudo por 4xx do ORS).
+                    if (gj && gj.type) {
+                        layersLinhas.push(L.geoJSON(gj, { style: { color: corLinha, weight: 6, opacity: 0.6 } }).addTo(mapaInstancia));
+                    }
+                } else {
+                    console.warn('[painel] ORS falhou ao desenhar linha da rota, seguindo sem linha.', r.status);
+                }
+            } catch (eOrs) {
+                console.warn('[painel] erro ao traçar linha da rota (não-fatal)', eOrs && eOrs.message);
+            }
         }
-    } catch(e) { divLista.innerHTML = '<p style="color:red;">Erro ao buscar rotas.</p>'; }
+    } catch(e) {
+        console.error('[painel] carregarRotasDoGestor falhou:', e);
+        divLista.innerHTML = '<p style="color:red;">Erro ao buscar rotas.</p>';
+    }
 }
 
 function moverOrdemGestor(id, direcao) {
@@ -604,7 +707,7 @@ async function salvarAlteracaoGerencial() {
     const validCoords = pacotesTurno.filter(p => p.lat && p.lng).map(p => [p.lng, p.lat]);
     if(validCoords.length > 0) {
         try {
-            const r = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/json', { method: 'POST', headers: { 'Authorization': ORS_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: [LOJA_COORDS, ...validCoords] }) });
+            const r = await apiFetch('/api/ors/directions/driving-car/json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: [LOJA_COORDS, ...validCoords] }) });
             const data = await r.json();
             if (data.routes && data.routes.length > 0) { const segments = data.routes[0].segments; pacotesTurno.forEach((p, index) => { if (segments[index]) { p.distancia_km = (segments[index].distance / 1000).toFixed(1); p.tempo_viagem = Math.round(segments[index].duration / 60); } }); }
         } catch(e) {}

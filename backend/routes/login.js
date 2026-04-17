@@ -61,9 +61,14 @@ router.post('/operador', async (req, res) => {
 router.post('/motorista', async (req, res) => {
     try {
         const { login, senha } = req.body;
+        // Base coords vêm da tabela `bases` (empresas não guarda lat/lng).
+        // Usa a base mais antiga da empresa como default do app motorista;
+        // se não houver base cadastrada, base_lat/base_lng retornam NULL.
         const [linhas] = await db.query(
             `SELECT u.*, e.nome as empresa_nome, e.cor1, e.caminho_logo, e.api_mapas,
-                    e.status as empresa_status, e.base_lat, e.base_lng
+                    e.status as empresa_status,
+                    (SELECT b.lat FROM bases b WHERE b.empresa_id = e.id ORDER BY b.id ASC LIMIT 1) AS base_lat,
+                    (SELECT b.lng FROM bases b WHERE b.empresa_id = e.id ORDER BY b.id ASC LIMIT 1) AS base_lng
                FROM usuarios u
          INNER JOIN empresas e ON u.empresa_id = e.id
               WHERE u.login = ?`,

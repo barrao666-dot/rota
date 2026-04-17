@@ -155,13 +155,16 @@ router.post('/posicao', requireAuth, async (req, res) => {
         const usuarioId = Number(req.auth && req.auth.usuarioId);
         const empresaId = Number(req.auth && req.auth.empresaId);
         if (!usuarioId || !empresaId) {
+            console.warn('[posicao] 403 - role sem usuario/empresa', { auth: req.auth });
             return res.status(403).json({ erro: 'Apenas operadores vinculados a uma empresa podem enviar posição.' });
         }
         const lat = parseFloat(req.body.lat);
         const lng = parseFloat(req.body.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            console.warn('[posicao] 400 - coordenadas invalidas', { body: req.body });
             return res.status(400).json({ erro: 'Coordenadas inválidas.' });
         }
+        console.log(`[posicao] OK emp=${empresaId} usr=${usuarioId} lat=${lat} lng=${lng}`);
         const velocidade = req.body.velocidade != null && Number.isFinite(Number(req.body.velocidade))
             ? Math.max(0, Number(req.body.velocidade))
             : null;

@@ -579,6 +579,24 @@
         initMapActive();
         setTimeout(() => { if (mapActive) mapActive.invalidateSize(); }, 80);
         renderMapaActive(paradas);
+
+        // Botão "Desistir do início": só faz sentido antes de começar a
+        // mexer na rota. Depois de 'partir' / 'cheguei' / 'concluir' o
+        // motorista já registrou tempos que não queremos descartar. Por
+        // isso avisamos explicitamente.
+        const btnDes = document.getElementById('btn-desistir');
+        if (btnDes) {
+            const progrediu = paradas.some((p) => p.status && p.status !== 'pendente');
+            btnDes.innerText = progrediu ? '↩️ Voltar (rota já em andamento)' : '❌ Desistir do início';
+            btnDes.onclick = () => {
+                const msg = progrediu
+                    ? 'Esta rota já possui paradas iniciadas. Voltar mantém os registros, mas libera você para conferir os detalhes. Continuar?'
+                    : 'Desistir de iniciar esta rota? Você pode voltar aqui depois que revisar os detalhes.';
+                if (!confirm(msg)) return;
+                releaseWakeLock();
+                goto(`#/rota/${turno}/${data}`);
+            };
+        }
     }
 
     function paradaActiveHtml(p) {
@@ -652,16 +670,48 @@
             layersActive.push(m);
             bounds.extend([p.coords[1], p.coords[0]]);
         });
+
+        // Se já temos a posição do GPS (o watch pode ter disparado antes
+        // do mapa existir) plotamos imediatamente aqui. Isso garante que
+        // o pino azul apareça mesmo que o 1º fix chegue antes do render.
+        if (gpsLastLatLng) {
+            atualizarMarcadorGps(mapActive, (m) => gpsMarkerActive = m, gpsLastLatLng[0], gpsLastLatLng[1]);
+            bounds.extend(gpsLastLatLng);
+        } else {
+            // Sem fix ainda: força uma leitura oneshot pra já centralizar
+            // e criar o pino assim que a coordenada chegar.
+            if ('geolocation' in navigator) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        const lat = pos.coords.latitude;
+                        const lng = pos.coords.longitude;
+                        gpsLastLatLng = [lat, lng];
+                        atualizarMarcadorGps(mapActive, (m) => gpsMarkerActive = m, lat, lng);
+                        try { mapActive.setView([lat, lng], 15, { animate: true }); } catch (_) {}
+                        enviarPosicaoParaBackend(true);
+                    },
+                    (err) => {
+                        console.warn('[motorista] getCurrentPosition falhou', err);
+                        if (err && err.code === err.PERMISSION_DENIED) {
+                            toast('GPS bloqueado. Autorize a localização nas permissões do navegador.', 'err');
+                        } else {
+                            toast('Aguardando sinal de GPS...', 'err');
+                        }
+                    },
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+                );
+            }
+        }
         if (bounds.isValid()) mapActive.fitBounds(bounds, { padding: [30, 30] });
 
         // Linha da rota (ORS) — só se houver chave
         const pendentes = paradas.filter((p) => p.status !== 'concluida' && p.coords);
-        if (pendentes.length > 0 && ORS_KEY && LOJA_COORDS) {
+        if (pendentes.length > 0 && LOJA_COORDS) {
             try {
                 const coords = [LOJA_COORDS, ...pendentes.map((p) => p.coords)];
-                const resp = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
+                const resp = await apiFetch('/api/ors/directions/driving-car/geojson', {
                     method: 'POST',
-                    headers: { Authorization: ORS_KEY, 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ coordinates: coords })
                 });
                 if (resp.ok) {
@@ -771,8 +821,10 @@
     // Throttle: só envia se passaram >10s desde o último POST, pra não
     // inundar o backend quando o watchPosition dispara rápido.
     let ultimoPostMs = 0;
+    let ultimoPostOkMs = 0;
+    let ultimoPostErro = null;
     async function enviarPosicaoParaBackend(forceInterval) {
-        if (!gpsLastLatLng) return;
+        if (!gpsLastLatLng) { atualizarIndicadorGps(); return; }
         const agora = Date.now();
         const minMs = forceInterval ? 19000 : 10000;
         if (agora - ultimoPostMs < minMs) return;
@@ -788,10 +840,49 @@
                     precisao: gpsLastPrecisao
                 })
             });
+            ultimoPostOkMs = Date.now();
+            ultimoPostErro = null;
+            console.info('[motorista] posição enviada', gpsLastLatLng);
         } catch (err) {
-            console.warn('[motorista] falha ao postar posição', err && err.message);
+            ultimoPostErro = (err && err.message) || 'desconhecido';
+            console.warn('[motorista] falha ao postar posição', err && err.message, err);
+            if (err && err.status === 401) {
+                toast('Sessão expirada, faça login novamente.', 'err');
+            }
         }
+        atualizarIndicadorGps();
     }
+
+    // Indicador visual permanente na top-bar: mostra o tempo desde o
+    // último POST bem-sucedido, ou a mensagem de erro se falhou. É a
+    // forma mais rápida do motorista saber se o painel está recebendo
+    // a localização dele sem precisar olhar no console.
+    function atualizarIndicadorGps() {
+        const pill = document.getElementById('gps-pill');
+        if (!pill) return;
+        if (!gpsLastLatLng) {
+            pill.innerText = '📡 GPS aguardando';
+            pill.className = 'gps-pill aguardando';
+            return;
+        }
+        if (ultimoPostErro) {
+            pill.innerText = `📡 erro: ${ultimoPostErro.slice(0, 24)}`;
+            pill.className = 'gps-pill erro';
+            return;
+        }
+        if (!ultimoPostOkMs) {
+            pill.innerText = '📡 GPS ok (enviando...)';
+            pill.className = 'gps-pill aguardando';
+            return;
+        }
+        const s = Math.max(0, Math.round((Date.now() - ultimoPostOkMs) / 1000));
+        const txt = s < 60 ? `${s}s` : `${Math.round(s / 60)}m`;
+        pill.innerText = `📡 enviado há ${txt}`;
+        pill.className = 'gps-pill ok';
+    }
+
+    // Atualiza o texto do pill a cada segundo mesmo sem novo POST.
+    setInterval(atualizarIndicadorGps, 1000);
 
     function atualizarMarcadorGps(map, setter, lat, lng) {
         if (!map) return;
@@ -900,6 +991,32 @@
         // tokens/estado; o fluxo é linear Home → Detail → Active.
         goto('#/');
     });
+
+    // Logout: encerra sessão, desliga GPS/WakeLock, zera timers e manda
+    // pra tela de login dedicada do motorista. Se estiver em viagem
+    // ativa, pede confirmação pra evitar logout acidental no trânsito.
+    const btnSair = document.getElementById('btn-sair');
+    if (btnSair) {
+        btnSair.addEventListener('click', async () => {
+            const emViagem = currentView === 'active';
+            const msg = emViagem
+                ? 'Você está com uma rota em andamento. Deseja realmente sair do app?'
+                : 'Deseja sair do app do motorista?';
+            if (!confirm(msg)) return;
+            try { stopGpsWatch(); } catch (_) {}
+            try { releaseWakeLock(); } catch (_) {}
+            try {
+                Object.keys(localStorage)
+                    .filter((k) => k.startsWith('timer_partida_') || k.startsWith('timer_chegada_'))
+                    .forEach((k) => localStorage.removeItem(k));
+            } catch (_) {}
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('tipo_app');
+            localStorage.removeItem('dados_operador');
+            localStorage.removeItem('dados_empresa');
+            window.location.replace('/operacao/login.html');
+        });
+    }
 
     window.addEventListener('load', async () => {
         const temToken = !!localStorage.getItem('auth_token');

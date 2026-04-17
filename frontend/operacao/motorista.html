@@ -14,7 +14,7 @@
     <meta name="apple-mobile-web-app-title" content="Motorista">
     <meta name="application-name" content="Motorista">
     <link rel="apple-touch-icon" href="/icons/icon-192.svg">
-    <link rel="stylesheet" href="/css/motorista.css?v=4">
+    <link rel="stylesheet" href="/css/motorista.css?v=7">
 </head>
 <body>
 
@@ -28,6 +28,8 @@
             <span class="topbar-subtitle" id="topbar-subtitle">Selecione uma rota do dia</span>
         </div>
         <span class="sync-pill" id="sync-pill">⟳ Sync</span>
+        <span class="gps-pill aguardando" id="gps-pill" title="Status do envio de GPS para o painel">📡 GPS aguardando</span>
+        <button class="btn-sair" id="btn-sair" type="button" title="Sair do app" aria-label="Sair">⏻</button>
     </div>
 
     <!-- ===== VIEW: HOME ===== -->
@@ -72,6 +74,7 @@
             <div class="sheet-header">
                 <h2 class="sheet-title" id="active-titulo">Viagem em andamento</h2>
                 <p class="sheet-sub" id="active-sub">Siga o passo-a-passo de cada parada.</p>
+                <button class="btn-desistir" id="btn-desistir" type="button" title="Voltar para os detalhes da rota">❌ Desistir do início</button>
             </div>
             <div class="sheet-body" id="lista-paradas-ativas"></div>
         </div>
@@ -90,7 +93,7 @@
 <!-- Cliente de API (token + apiFetchJson) -->
 <script src="/js/api-client.js"></script>
 <!-- App do motorista (router + GPS + WakeLock) -->
-<script src="/js/motorista.js?v=4"></script>
+<script src="/js/motorista.js?v=8"></script>
 <!-- Bootstrap PWA (registra SW, injeta tags ausentes). NÃO sobrescreve
      o <link rel="manifest"> já declarado (próprio do motorista). -->
 <script src="/js/pwa-bootstrap.js?v=1" defer></script>

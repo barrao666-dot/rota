@@ -103,6 +103,54 @@ body {
 .sync-pill.offline { background: rgba(239,68,68,0.85); }
 .sync-pill.ok { background: rgba(22,163,74,0.85); }
 
+.gps-pill {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 5px 7px;
+    border-radius: 999px;
+    white-space: nowrap;
+    margin-left: 4px;
+    letter-spacing: 0.2px;
+}
+.gps-pill.aguardando { background: rgba(251,191,36,0.9); color: #78350f; }
+.gps-pill.ok { background: rgba(22,163,74,0.9); color: #fff; }
+.gps-pill.erro { background: rgba(239,68,68,0.9); color: #fff; }
+
+.btn-sair {
+    margin-left: 8px;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 0;
+    background: rgba(239, 68, 68, 0.22);
+    color: #fff;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, transform 0.08s ease;
+}
+.btn-sair:hover { background: rgba(239, 68, 68, 0.38); }
+.btn-sair:active { transform: scale(0.92); }
+
+.btn-desistir {
+    margin-top: 10px;
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.08s ease;
+}
+.btn-desistir:hover { background: #fee2e2; }
+.btn-desistir:active { transform: scale(0.98); }
+
 /* ===== Views ===== */
 .view {
     flex: 1 1 auto;

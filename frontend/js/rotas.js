@@ -191,8 +191,15 @@ async function refinamentoLocalHaversineAposMover(idMovido, data, periodo) {
 // Garante a invariante pickup→delivery: para cada coleta com
 // coletaVinculadaId preenchido na data informada:
 //   1. a coleta e sua entrega ficam no MESMO turno (coleta herda o turno da entrega);
-//   2. a coleta recebe ordem imediatamente anterior à entrega na sequência do turno.
-// Só grava se houver mudanças reais, evitando loops desnecessários com o backend.
+//   2. a coleta DEVE aparecer ANTES da entrega (ordem menor) — não é
+//      obrigatório ser imediatamente anterior. Se essa invariante já
+//      está respeitada, a ordem atual é preservada. Só reorganiza
+//      (injetando a coleta logo antes da entrega) em dois casos:
+//      a) coleta vinculada recém-criada ainda sem ordem → precisa entrar
+//         na sequência pela primeira vez;
+//      b) ORS ou movimento manual deixou a coleta DEPOIS da entrega →
+//         corrige minimamente reposicionando a coleta logo antes.
+// Só grava se houver mudanças reais.
 async function garantirAdjacenciaVinculosNoDia(dataFiltro) {
     const vinculadas = entregas.filter((e) =>
         e.dataEntrega === dataFiltro &&
@@ -253,8 +260,8 @@ async function garantirAdjacenciaVinculosNoDia(dataFiltro) {
             || coletasSemOrdemParaInjetar.length > 0;
         if (!temVinculoNoTurno) continue;
 
-        // Mapa de pickup por id de delivery, combinando as já roteadas e as
-        // recém-vinculadas sem ordem (essas entram na sequência pela primeira vez).
+        // Índice por id da entrega alvo → coleta vinculada (entre as já
+        // roteadas e as que precisam ser injetadas).
         const coletasPorAlvo = new Map();
         for (const p of roteadas) {
             if (ehColeta(p) && p.coletaVinculadaId != null) {
@@ -267,13 +274,33 @@ async function garantirAdjacenciaVinculosNoDia(dataFiltro) {
             }
         }
 
+        // Detecta violações da invariante (coleta sem ordem OU coleta
+        // depois da entrega). Se não houver violações, não mexemos na
+        // ordem atual — o usuário pode ter espalhado a coleta vários
+        // passos antes da entrega e isso é permitido.
+        const idsParaReinjetar = new Set();
+        for (const [idEntrega, pickup] of coletasPorAlvo) {
+            const entregaAlvo = roteadas.find((x) => x.id === idEntrega);
+            if (!entregaAlvo) {
+                // Entrega alvo não roteada no turno — coleta vai pro fim como fallback.
+                idsParaReinjetar.add(pickup.id);
+                continue;
+            }
+            const pickupOrdem = pickup.ordem;
+            if (!pickupOrdem || pickupOrdem >= entregaAlvo.ordem) {
+                // Coleta sem ordem OU posicionada depois da entrega → precisa ajuste.
+                idsParaReinjetar.add(pickup.id);
+            }
+        }
+        if (idsParaReinjetar.size === 0) continue;
+
         const coletasJaAlocadas = new Set();
         const nova = [];
         for (const p of roteadas) {
-            const ehVinculada = ehColeta(p) && p.coletaVinculadaId != null;
-            if (ehVinculada) continue; // será injetada quando a entrega alvo aparecer
+            const precisaInjecao = ehColeta(p) && p.coletaVinculadaId != null && idsParaReinjetar.has(p.id);
+            if (precisaInjecao) continue; // será injetada logo antes da sua entrega alvo
             const pickup = coletasPorAlvo.get(p.id);
-            if (pickup && !coletasJaAlocadas.has(pickup.id)) {
+            if (pickup && idsParaReinjetar.has(pickup.id) && !coletasJaAlocadas.has(pickup.id)) {
                 nova.push(pickup);
                 coletasJaAlocadas.add(pickup.id);
             }
@@ -281,7 +308,9 @@ async function garantirAdjacenciaVinculosNoDia(dataFiltro) {
         }
         // Coletas vinculadas cuja entrega não está no mesmo turno voltam ao fim.
         for (const [, pickup] of coletasPorAlvo) {
-            if (!coletasJaAlocadas.has(pickup.id)) nova.push(pickup);
+            if (idsParaReinjetar.has(pickup.id) && !coletasJaAlocadas.has(pickup.id)) {
+                nova.push(pickup);
+            }
         }
 
         const corDoTurno = turno === 'manha' ? '#16a34a' : '#2563eb';
@@ -1806,6 +1835,24 @@ async function desfazerConcluida(id) {
         mostrarErro("Falha ao reabrir entrega.");
     }
 }
+// REGRA DO VÍNCULO (relaxada): a coleta só precisa aparecer ANTES da
+// sua entrega vinculada na sequência do turno — não precisa ser
+// imediatamente anterior. Aqui simulamos o swap e checamos se a
+// invariante "coleta.ordem < entrega.ordem" continuaria válida para
+// TODOS os pares do turno.
+function swapRespeitaVinculos(pacotesTurno, iA, iB) {
+    const sim = pacotesTurno.slice();
+    [sim[iA], sim[iB]] = [sim[iB], sim[iA]];
+    for (let i = 0; i < sim.length; i++) {
+        const pi = sim[i];
+        if (ehColeta(pi) && pi.coletaVinculadaId != null) {
+            const j = sim.findIndex((x) => x.id === pi.coletaVinculadaId);
+            if (j !== -1 && j <= i) return false;
+        }
+    }
+    return true;
+}
+
 async function moverOrdem(id, direcao) {
     const p = entregas.find((e) => e.id === id);
     if (!p || !p.ordem) return;
@@ -1817,28 +1864,91 @@ async function moverOrdem(id, direcao) {
     const iAlvo = iAtual + direcao;
     if (iAlvo < 0 || iAlvo >= pacotesTurno.length) return;
 
+    // DETECÇÃO DE MOVIMENTO EM BLOCO (pickup+delivery):
+    // se o swap normal (iAtual ↔ iAlvo) violaria a invariante
+    // coleta-antes-de-entrega, isso significa que o usuário clicou
+    // ou na coleta tentando descer sobre sua entrega imediatamente
+    // seguinte, ou na entrega tentando subir sobre sua coleta
+    // imediatamente anterior. Nesse caso a gente move o PAR inteiro
+    // uma posição (a coleta arrasta a entrega vinculada junto, e
+    // vice-versa), pulando sobre o vizinho externo ao par.
+    let novaSequencia = null;
+    if (!swapRespeitaVinculos(pacotesTurno, iAtual, iAlvo)) {
+        const parColeta = ehColeta(p) && p.coletaVinculadaId != null
+            ? { coleta: p, entrega: pacotesTurno.find((x) => x.id === p.coletaVinculadaId) }
+            : null;
+        const parEntrega = !ehColeta(p) ? { coleta: pacotesTurno.find((x) => ehColeta(x) && x.coletaVinculadaId === p.id), entrega: p } : null;
+        const par = (parColeta && parColeta.entrega) ? parColeta : (parEntrega && parEntrega.coleta ? parEntrega : null);
+
+        if (par) {
+            const iColeta = pacotesTurno.findIndex((x) => x.id === par.coleta.id);
+            const iEntrega = pacotesTurno.findIndex((x) => x.id === par.entrega.id);
+            // Só é "movimento em bloco" quando a coleta e a entrega são
+            // adjacentes (iEntrega === iColeta + 1). Se houver itens entre
+            // elas, o swap simples já foi permitido pela invariante e nem
+            // chegamos aqui.
+            if (iEntrega === iColeta + 1) {
+                const iVizinho = direcao === -1 ? iColeta - 1 : iEntrega + 1;
+                if (iVizinho < 0 || iVizinho >= pacotesTurno.length) {
+                    mostrarErro('O par vinculado já está no início/fim do turno.');
+                    return;
+                }
+                novaSequencia = pacotesTurno.slice();
+                if (direcao === -1) {
+                    // [..., V, C, E, ...] → [..., C, E, V, ...]
+                    const V = novaSequencia[iVizinho];
+                    novaSequencia[iVizinho] = par.coleta;
+                    novaSequencia[iColeta] = par.entrega;
+                    novaSequencia[iEntrega] = V;
+                } else {
+                    // [..., C, E, V, ...] → [..., V, C, E, ...]
+                    const V = novaSequencia[iVizinho];
+                    novaSequencia[iColeta] = V;
+                    novaSequencia[iEntrega] = par.coleta;
+                    novaSequencia[iVizinho] = par.entrega;
+                }
+            }
+        }
+        if (!novaSequencia) {
+            mostrarErro('Movimento bloqueado: a coleta vinculada deve ficar antes da sua entrega.');
+            return;
+        }
+    }
+
     const pAlvo = pacotesTurno[iAlvo];
     const snap = snapOrdemTurno(p.dataEntrega, p.periodo);
 
-    // Captura custo anterior (em linha reta) para avaliar distanciamento pós-troca.
+    // Simulada: ou é o swap simples, ou o "move em bloco" calculado acima.
+    const simulada = novaSequencia || (() => {
+        const s = pacotesTurno.slice();
+        s[iAtual] = pAlvo;
+        s[iAlvo] = p;
+        return s;
+    })();
+
     const custoAntes = custoHaversinePercurso(pacotesTurno);
-    const simulada = pacotesTurno.slice();
-    simulada[iAtual] = pAlvo;
-    simulada[iAlvo] = p;
     const custoDepois = custoHaversinePercurso(simulada);
     const delta = custoDepois - custoAntes;
     const deltaPct = custoAntes > 0 ? delta / custoAntes : 0;
     const houveDistanciamento = delta >= ROTA_AVISO_AUMENTO_KM || deltaPct >= ROTA_AVISO_AUMENTO_PCT;
 
     try {
-        await trocarOrdemDoisPacotesApi(p, pAlvo);
+        if (novaSequencia) {
+            // Persistência em lote: a sequência inteira do turno é reatribuída.
+            const entregasAlterar = novaSequencia.map((item, idx) => {
+                const novaOrdem = idx + 1;
+                if (item.ordem !== novaOrdem) item.ordem = novaOrdem;
+                return item;
+            });
+            await atualizarRoteamentoLote(entregasAlterar);
+        } else {
+            await trocarOrdemDoisPacotesApi(p, pAlvo);
+        }
         ultimaAssinaturaLinhasRota = '';
         invalidarCachesyncRotas();
         await carregarDados({ subtle: true });
 
         if (houveDistanciamento) {
-            // Permite forçar a ordem não otimizada, mas emite aviso e tenta
-            // reorganizar os pontos próximos mantendo o item ancorado.
             mostrarErro(
                 `⚠️ A alteração aumentou a distância total da rota em ` +
                 `${delta.toFixed(1)} km (${(deltaPct * 100).toFixed(0)}%). ` +
@@ -1847,12 +1957,13 @@ async function moverOrdem(id, direcao) {
             await reordenacaoInteligenteAncorada(id, p.dataEntrega, p.periodo);
         }
 
-        // Mantém coleta sempre imediatamente antes da sua entrega vinculada.
         await garantirAdjacenciaVinculosNoDia(p.dataEntrega);
         await recalcularTurnoAposMudancaManual(p.dataEntrega, p.periodo);
         avaliarAvisosCapacidade(p.dataEntrega, p.periodo);
         if (!houveDistanciamento) {
-            mostrarSucesso('Rota reajustada com base na nova ordem manual.');
+            mostrarSucesso(novaSequencia
+                ? 'Par vinculado movido em bloco.'
+                : 'Rota reajustada com base na nova ordem manual.');
         }
     } catch (e) {
         try {
@@ -2093,9 +2204,9 @@ async function otimizarRotaEValidarTempo() {
         btnRota.innerText = '⏳ Calculando Rotas...';
         btnRota.disabled = true;
         calculando = true;
-        const resp = await fetch('https://api.openrouteservice.org/optimization', {
+        const resp = await apiFetch('/api/ors/optimization', {
             method: 'POST',
-            headers: { Authorization: ORS_KEY, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ jobs, vehicles })
         });
         const result = await resp.json();
@@ -2353,7 +2464,7 @@ async function recalcularDistanciasManuais(opts = {}) {
     for (const turno of ['manha', 'tarde']) {
         const pacotes = entregas.filter(e => e.dataEntrega === dataFiltro && e.periodo === turno && e.ordem && e.status !== 'concluida' && Array.isArray(e.coords) && e.coords.length === 2).sort((a,b) => a.ordem - b.ordem);
         if (pacotes.length > 0) {
-            try { const coords = [LOJA_COORDS, ...pacotes.map(p => p.coords)]; const r = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/json', { method: 'POST', headers: { 'Authorization': ORS_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: coords }) }); const data = await r.json(); if (data.routes && data.routes.length > 0) { const segments = data.routes[0].segments; pacotes.forEach((p, index) => { if (segments[index]) { p.distanciaTrecho = (segments[index].distance / 1000).toFixed(1); p.tempoViagem = Math.round(segments[index].duration / 60); alterou = true; } }); } } catch(e) { }
+            try { const coords = [LOJA_COORDS, ...pacotes.map(p => p.coords)]; const r = await apiFetch('/api/ors/directions/driving-car/json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: coords }) }); const data = await r.json(); if (data.routes && data.routes.length > 0) { const segments = data.routes[0].segments; pacotes.forEach((p, index) => { if (segments[index]) { p.distanciaTrecho = (segments[index].distance / 1000).toFixed(1); p.tempoViagem = Math.round(segments[index].duration / 60); alterou = true; } }); } } catch(e) { }
         }
     }
     if (alterou) {
@@ -2371,9 +2482,9 @@ async function recalcularTurnoAposMudancaManual(dataFiltro, turno) {
 
     try {
         const coords = [LOJA_COORDS, ...pacotes.map((p) => p.coords)];
-        const r = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/json', {
+        const r = await apiFetch('/api/ors/directions/driving-car/json', {
             method: 'POST',
-            headers: { Authorization: ORS_KEY, 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ coordinates: coords })
         });
         const data = await r.json();
@@ -2413,8 +2524,8 @@ async function tracarRotasNasRuas(opts = {}) {
     const m = entregas.filter(e => e.dataEntrega === d && e.periodo === 'manha' && e.ordem && e.status !== 'concluida' && e.coords).sort((a,b)=>a.ordem-b.ordem);
     const t = entregas.filter(e => e.dataEntrega === d && e.periodo === 'tarde' && e.ordem && e.status !== 'concluida' && e.coords).sort((a,b)=>a.ordem-b.ordem);
     try {
-        if(m.length > 0 && map) { const r = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', { method: 'POST', headers: { 'Authorization': ORS_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: [LOJA_COORDS, ...m.map(p => p.coords), LOJA_COORDS] }) }); layersLinhas.push(L.geoJSON(await r.json(), { style: { color: '#16a34a', weight: 6, opacity: 0.6 } }).addTo(map)); }
-        if(t.length > 0 && map) { const r = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', { method: 'POST', headers: { 'Authorization': ORS_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: [LOJA_COORDS, ...t.map(p => p.coords), LOJA_COORDS] }) }); layersLinhas.push(L.geoJSON(await r.json(), { style: { color: '#2563eb', weight: 6, opacity: 0.6 } }).addTo(map)); }
+        if(m.length > 0 && map) { const r = await apiFetch('/api/ors/directions/driving-car/geojson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: [LOJA_COORDS, ...m.map(p => p.coords), LOJA_COORDS] }) }); layersLinhas.push(L.geoJSON(await r.json(), { style: { color: '#16a34a', weight: 6, opacity: 0.6 } }).addTo(map)); }
+        if(t.length > 0 && map) { const r = await apiFetch('/api/ors/directions/driving-car/geojson', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ coordinates: [LOJA_COORDS, ...t.map(p => p.coords), LOJA_COORDS] }) }); layersLinhas.push(L.geoJSON(await r.json(), { style: { color: '#2563eb', weight: 6, opacity: 0.6 } }).addTo(map)); }
     } catch(e) {}
 }
 

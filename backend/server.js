@@ -40,6 +40,7 @@ const basesRotas = require('./routes/bases');
 const coletasRotas = require('./routes/coletas');
 const regrasRotas = require('./routes/regras');
 const usuariosRotas = require('./routes/usuarios');
+const orsRotas = require('./routes/ors');
 
 // API primeiro: nunca compete com arquivos estáticos do /frontend
 app.use('/api/login', loginRotas);
@@ -50,6 +51,7 @@ app.use('/api/bases', basesRotas);
 app.use('/api/coletas', coletasRotas);
 app.use('/api/regras', regrasRotas);
 app.use('/api/usuarios', usuariosRotas);
+app.use('/api/ors', orsRotas);
 
 // Assets do painel operacional que NÃO devem ser cacheados pelo navegador:
 // o painel de rotas é atualizado com frequência e precisa puxar a versão
